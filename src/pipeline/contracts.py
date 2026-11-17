@@ -1,7 +1,7 @@
-"""Hợp đồng dữ liệu: mỗi loại bản ghi có cột bắt buộc, kiểu, khoá khử trùng và luật hợp lệ.
+"""Data contracts: for each record type, the required columns, types, dedup key and validity rules.
 
-`classify` nhận diện loại dữ liệu từ danh sách cột của file nguồn (bronze), `clean` ép kiểu + kiểm tra
-+ khử trùng trong lô (silver). Dòng sai bị tách ra kèm `reject_reason`, không bị xoá âm thầm.
+`classify` detects the record type from a source file's columns (bronze), `clean` coerces types + validates
++ deduplicates within the batch (silver). Bad rows are split off with a `reject_reason`, never silently deleted.
 """
 import re
 from dataclasses import dataclass, field
@@ -10,7 +10,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-Check = Tuple[str, Callable[[pd.DataFrame], pd.Series]]   # (tên luật, hàm trả mask HỢP LỆ)
+Check = Tuple[str, Callable[[pd.DataFrame], pd.Series]]   # (rule name, function returning the VALID mask)
 
 
 @dataclass
@@ -21,7 +21,7 @@ class Contract:
     dtypes: Dict[str, str]                      # str | float | int | datetime
     checks: List[Check] = field(default_factory=list)
     normalize: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None
-    strict_columns: bool = False        # True: cột ngoài hợp đồng bị loại ngay, không vào silver
+    strict_columns: bool = False        # True: columns outside the contract are dropped immediately and never reach silver
 
 
 def _ok(s: pd.Series) -> pd.Series:
@@ -78,7 +78,7 @@ CONTRACTS: Dict[str, Contract] = {
         ],
         normalize=_price_norm,
     ),
-    # Tỷ giá: eur_per_unit = số EUR đổi được từ 1 đơn vị tiền tệ (GBP -> khoảng 1.17)
+    # FX rate: eur_per_unit = EUR received for 1 unit of the currency (GBP -> about 1.17)
     "fx_rate": Contract(
         name="fx_rate",
         key=["rate_date", "currency"],
@@ -90,7 +90,7 @@ CONTRACTS: Dict[str, Contract] = {
         ],
         normalize=lambda df: df.assign(currency=df["currency"].str.upper()),
     ),
-    # Giá vốn và giá bán của chi nhánh (dữ liệu NỘI BỘ của công ty); giá bán own_price là giá đã gồm VAT
+    # Branch cost and selling price (INTERNAL company data); own_price is the VAT-inclusive selling price
     "branch_cost": Contract(
         name="branch_cost",
         key=["product_code", "country"],
@@ -106,7 +106,7 @@ CONTRACTS: Dict[str, Contract] = {
         normalize=lambda df: df.assign(currency=df["currency"].str.upper(), country=df["country"].str.upper()),
         strict_columns=True,
     ),
-    # Tombstone: yêu cầu xoá. record_key = các cột khoá của loại đó nối bằng "|" (số: định dạng %g, ngày: YYYY-MM-DD)
+    # Tombstone: deletion request. record_key = the type's key columns joined with "|" (numbers: %g format, dates: YYYY-MM-DD)
     "tombstone": Contract(
         name="tombstone",
         key=["record_type", "record_key"],
@@ -133,16 +133,16 @@ def norm_col(name: str) -> str:
 
 
 def classify(columns: List[str]) -> Optional[str]:
-    """Loại dữ liệu của một file theo danh sách cột; None nếu không khớp hợp đồng nào."""
+    """Record type of a file from its column list; None if no contract matches."""
     cols = {norm_col(c) for c in columns}
     matches = [c for c in CONTRACTS.values() if set(c.required) <= cols]
     if not matches:
         return None
-    return max(matches, key=lambda c: len(c.required)).name   # khớp cụ thể nhất
+    return max(matches, key=lambda c: len(c.required)).name   # most specific match
 
 
 def clean(raw: pd.DataFrame, contract: Contract) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int]]:
-    """Trả (dòng tốt đã khử trùng, dòng bị loại kèm lý do, số liệu)."""
+    """Returns (good rows, deduplicated; rejected rows with reasons; metrics)."""
     df = raw.copy()
     df.columns = [norm_col(c) for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated()]

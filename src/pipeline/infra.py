@@ -1,4 +1,4 @@
-"""Hạ tầng dùng chung: layout thư mục, ghi file nguyên tử, khoá chống chạy chồng."""
+"""Shared infrastructure: directory layout, atomic file writes, lock against overlapping runs."""
 import hashlib
 import json
 import os
@@ -16,15 +16,15 @@ class Layout:
     root: Path
 
     @property
-    def landing(self) -> Path: return self.root / "landing"        # nơi thả file nguồn (không sửa)
+    def landing(self) -> Path: return self.root / "landing"        # where source files are dropped (never modified)
     @property
-    def bronze(self) -> Path: return self.root / "bronze"          # bản sao thô, bất biến, đặt tên theo hash
+    def bronze(self) -> Path: return self.root / "bronze"          # raw immutable copies, named by hash
     @property
-    def silver(self) -> Path: return self.root / "silver"          # đã ép kiểu, kiểm tra, khử trùng
+    def silver(self) -> Path: return self.root / "silver"          # typed, validated, deduplicated
     @property
-    def gold(self) -> Path: return self.root / "gold"              # bảng sẵn sàng cho mô hình và dashboard
+    def gold(self) -> Path: return self.root / "gold"              # tables ready for the model and dashboard
     @property
-    def quarantine(self) -> Path: return self.root / "quarantine"  # dòng bị loại kèm lý do
+    def quarantine(self) -> Path: return self.root / "quarantine"  # rejected rows with reasons
     @property
     def state(self) -> Path: return self.root / "state"            # manifest, fingerprint, lock
 
@@ -73,7 +73,7 @@ def sha256_file(path: Path) -> str:
 
 
 def fingerprint(paths: list) -> str:
-    """Dấu vân tay của tập file đầu vào; đổi nội dung thì đổi dấu vân tay."""
+    """Fingerprint of a set of input files; changes when any content changes."""
     h = hashlib.sha256()
     for p in sorted(Path(x) for x in paths):
         h.update(p.name.encode())
@@ -86,10 +86,10 @@ class PipelineBusy(RuntimeError):
 
 
 class RunLock:
-    """Khoá toàn pipeline: chỉ một lần chạy tại một thời điểm (tạo file bằng O_EXCL, thao tác nguyên tử).
+    """Pipeline-wide lock: only one run at a time (file created with O_EXCL, an atomic operation).
 
-    Chủ khoá gọi heartbeat() định kỳ; khoá không được gia hạn quá `ttl` giây bị coi là của tiến trình
-    đã chết và được thu hồi. Không dùng kiểm tra PID vì trên Windows os.kill(pid, 0) có thể kết thúc tiến trình.
+    The lock owner calls heartbeat() periodically; a lock not renewed for more than `ttl` seconds is treated as belonging to a
+    dead process and is reclaimed. No PID check, because on Windows os.kill(pid, 0) can terminate the process.
     """
 
     def __init__(self, path: Path, ttl: int = 600, wait: float = 0.0):
@@ -113,7 +113,7 @@ class RunLock:
             try:
                 age = time.time() - self.path.stat().st_mtime
                 if age > self.ttl:
-                    self.path.unlink(missing_ok=True)   # khoá chết -> thu hồi, thử lại
+                    self.path.unlink(missing_ok=True)   # dead lock -> reclaim, retry
                     continue
             except FileNotFoundError:
                 continue
@@ -122,7 +122,7 @@ class RunLock:
             time.sleep(0.2)
 
     def heartbeat(self) -> None:
-        """Gia hạn khoá: chủ khoá còn sống thì mtime luôn mới, nên TTL chỉ để thu hồi khoá của tiến trình đã chết."""
+        """Renew the lock: while the owner is alive the mtime stays fresh, so the TTL only reclaims locks of dead processes."""
         try:
             os.utime(self.path)
         except FileNotFoundError:
@@ -134,7 +134,7 @@ class RunLock:
             info = json.loads(self.path.read_text())
         except (FileNotFoundError, ValueError):
             return
-        if info.get("token") == self.token:   # chỉ xoá khoá của chính mình
+        if info.get("token") == self.token:   # only remove our own lock
             self.path.unlink(missing_ok=True)
 
     def __enter__(self): self.acquire(); return self
@@ -142,7 +142,7 @@ class RunLock:
 
 
 def cleanup_tmp(layout: "Layout", older_than: float = 3600.0) -> int:
-    """Xoá file *.tmp mồ côi (do tiến trình bị kill giữa lúc ghi). Chỉ xoá file đủ cũ."""
+    """Delete orphaned *.tmp files (left when a process was killed mid-write). Only deletes files old enough."""
     n, now = 0, time.time()
     for p in layout.root.rglob("*.tmp"):
         try:

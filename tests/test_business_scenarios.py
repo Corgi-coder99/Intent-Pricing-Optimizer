@@ -53,7 +53,7 @@ def test_case_1_quality_defect_crisis(system_components):
     )
 
     assert decision["strategy_name"] == "Defensive Conversion Recovery"
-    recommended_price = float(decision["recommended_price"].replace("$", ""))
+    recommended_price = float(decision["recommended_price"].replace("€", ""))
     assert recommended_price < 149.99
 
 
@@ -84,7 +84,7 @@ def test_case_2_margin_expansion_opportunity(system_components):
     )
 
     assert decision["strategy_name"] == "Margin Expansion (Dynamic Markup)"
-    recommended_price = float(decision["recommended_price"].replace("$", ""))
+    recommended_price = float(decision["recommended_price"].replace("€", ""))
     assert recommended_price > 119.00
 
 

@@ -1,20 +1,37 @@
-# Biên gộp ngành bán lẻ theo quốc gia, nguồn Eurostat (sbs_na_dt_r2). Số của cả ngành, không phải của công ty nào.
-# gross_margin_pct = gross_margin_m_eur / turnover_m_eur * 100 (tính bằng mã). Doanh thu chưa gồm VAT.
-# Tạo bằng: python -m src.connectors.eurostat_retail
-country,nace_r2,year,turnover_m_eur,gross_margin_m_eur,gross_margin_pct,gross_operating_rate_pct,source,retrieved_on
-BE,G47,2019,87203.2,35079.8,40.23,7.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-BE,G4711,2019,32230.1,12162.7,37.74,6.5,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-DE,G47,2019,642006.6,201865.4,31.44,6.5,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-DE,G4711,2019,212458.2,49730.5,23.41,4.0,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-ES,G47,2019,245532.8,71865.2,29.27,6.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-ES,G4711,2019,81046.8,19402.6,23.94,5.0,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-FR,G47,2019,481070.1,137434.4,28.57,4.1,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-FR,G4711,2019,227685.6,47857.6,21.02,2.7,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-IE,G47,2019,38625.3,14285.4,36.98,6.1,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-IE,G4711,2019,14333.2,4970.7,34.68,2.6,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-IT,G47,2019,331767.2,90216.9,27.19,7.3,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-IT,G4711,2019,107934.4,24466.7,22.67,4.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-NL,G47,2019,124464.5,40561.4,32.59,9.2,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-NL,G4711,2019,37202.7,10169.1,27.33,7.7,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-GB,G47,2018,484761.9,178064.5,36.73,7.4,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
-GB,G4711,2018,197708.9,62891.1,31.81,3.9,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+# Retail gross margin by country, source: Eurostat (sbs_na_dt_r2). Sector-wide figures, not any single company's.
+# gross_margin_pct = gross_margin_m_eur / turnover_m_eur * 100 (computed in code). Turnover excludes VAT.
+# Generated with: python -m src.connectors.eurostat_retail
+country,nace_r2,year,turnover_m_eur,gross_margin_m_eur,gross_margin_pct,gross_operating_rate_pct,source,retrieved_on
+
+BE,G47,2019,87203.2,35079.8,40.23,7.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+BE,G4711,2019,32230.1,12162.7,37.74,6.5,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+DE,G47,2019,642006.6,201865.4,31.44,6.5,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+DE,G4711,2019,212458.2,49730.5,23.41,4.0,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+ES,G47,2019,245532.8,71865.2,29.27,6.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+ES,G4711,2019,81046.8,19402.6,23.94,5.0,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+FR,G47,2019,481070.1,137434.4,28.57,4.1,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+FR,G4711,2019,227685.6,47857.6,21.02,2.7,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+IE,G47,2019,38625.3,14285.4,36.98,6.1,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+IE,G4711,2019,14333.2,4970.7,34.68,2.6,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+IT,G47,2019,331767.2,90216.9,27.19,7.3,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+IT,G4711,2019,107934.4,24466.7,22.67,4.8,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+NL,G47,2019,124464.5,40561.4,32.59,9.2,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+NL,G4711,2019,37202.7,10169.1,27.33,7.7,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+GB,G47,2018,484761.9,178064.5,36.73,7.4,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+
+GB,G4711,2018,197708.9,62891.1,31.81,3.9,"eurostat:sbs_na_dt_r2 (V12110, V12130, V92110)",2026-11-17
+

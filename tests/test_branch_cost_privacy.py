@@ -40,7 +40,7 @@ def test_check_command_reports_without_ingesting_or_printing_values(tmp_path):
     assert r.returncode == 1 and out["rows"] == 2 and out["valid_rows"] == 1 and out["rejected"] == 1
     assert out["reject_reasons"] == {"cost_out_of_range": 1}
     assert sorted(out["columns_that_will_be_ignored"]) == ["manager_name", "supplier_iban"]
-    assert "Jean Dupont" not in r.stdout and "FR76" not in r.stdout          # không in nội dung dữ liệu
+    assert "Jean Dupont" not in r.stdout and "FR76" not in r.stdout          # row contents are never printed
 
 
 def test_check_flags_missing_required_columns_and_missing_file(tmp_path):

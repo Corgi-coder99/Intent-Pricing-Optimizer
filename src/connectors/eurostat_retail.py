@@ -1,13 +1,13 @@
-"""Connector Eurostat: biên gộp ngành bán lẻ theo quốc gia (thống kê doanh nghiệp, bộ dữ liệu sbs_na_dt_r2, 2005-2020).
+"""Eurostat connector: retail gross margin by country (structural business statistics, dataset sbs_na_dt_r2, 2005-2020).
 
-Chỉ số dùng: V12110 doanh thu (triệu EUR, chưa gồm VAT), V12130 biên gộp trên hàng bán lại (triệu EUR),
-V92110 tỷ suất lợi nhuận hoạt động gộp (%). Biên gộp % = V12130 / V12110 * 100, tính bằng mã.
-Nhóm NACE: G47 (bán lẻ nói chung) và G4711 (cửa hàng không chuyên, chủ yếu thực phẩm/đồ uống).
-Đây là số của CẢ NGÀNH theo nước, không phải giá vốn của công ty hay sản phẩm nào.
-Vương quốc Anh (mã UK) chỉ có đến 2018 vì Eurostat ngừng thu thập sau Brexit. Năm 2020 bị loại (MAX_YEAR=2019).
+Indicators used: V12110 turnover (EUR million, excl. VAT), V12130 gross margin on goods for resale (EUR million),
+V92110 gross operating rate (%). Gross margin % = V12130 / V12110 * 100, computed in code.
+NACE groups: G47 (retail trade overall) and G4711 (non-specialised stores, mainly food/beverages).
+These are SECTOR-wide figures per country, not the cost of any company or product.
+The UK (code UK) only goes up to 2018 because Eurostat stopped collecting it after Brexit. 2020 is excluded (MAX_YEAR=2019).
 
-Lớp bảo vệ như các connector khác: HTTPS tới một host và một đường dẫn, TLS xác minh, không theo chuyển hướng, giới hạn dung lượng,
-tham số kiểm tra theo danh sách cho phép, kiểm tra từng giá trị, không gửi thông tin cá nhân, ghi file bằng tmp + rename.
+Same protections as the other connectors: HTTPS to a single host and path, TLS verified, no redirects, size limits,
+allow-listed parameters, per-value validation, no personal data sent, files written via tmp + rename.
 """
 import json
 import os
@@ -70,7 +70,7 @@ def http_get(url: str) -> bytes:
 
 
 def parse_jsonstat(payload: bytes) -> Dict[tuple, float]:
-    """JSON-stat 2.0 -> {(geo, nace_r2, time, indic_sb): value}. Lỗi nếu cấu trúc không đúng như kỳ vọng."""
+    """JSON-stat 2.0 -> {(geo, nace_r2, time, indic_sb): value}. Raises if the structure is not as expected."""
     try:
         d = json.loads(payload)
         if "error" in d:
@@ -95,11 +95,11 @@ def parse_jsonstat(payload: bytes) -> Dict[tuple, float]:
     return out
 
 
-MAX_YEAR = 2019   # bỏ 2020 (năm đại dịch làm lệch doanh số/biên bán lẻ) để các nước so sánh được với nhau
+MAX_YEAR = 2019   # drop 2020 (pandemic year distorts retail turnover/margins) so countries stay comparable
 
 
 def build_table(values: Dict[tuple, float], retrieved_on: str, max_year: int = MAX_YEAR) -> pd.DataFrame:
-    """Với mỗi (nước, NACE) lấy năm MỚI NHẤT không quá max_year có đủ doanh thu và biên gộp hợp lệ; biên gộp % tính bằng mã."""
+    """For each (country, NACE) take the LATEST year up to max_year with valid turnover and gross margin; margin % computed in code."""
     rows: List[Dict] = []
     keys = {(g, n) for (g, n, _t, _i) in values}
     for g, n in sorted(keys):
@@ -137,9 +137,9 @@ def fetch_table(geos: Iterable[str] = DEFAULT_GEOS, fetch: Callable[[str], bytes
 
 
 def write_reference(df: pd.DataFrame, path: Path) -> None:
-    header = ("# Biên gộp ngành bán lẻ theo quốc gia, nguồn Eurostat (sbs_na_dt_r2). Số của cả ngành, không phải của công ty nào.\n"
-              "# gross_margin_pct = gross_margin_m_eur / turnover_m_eur * 100 (tính bằng mã). Doanh thu chưa gồm VAT.\n"
-              "# Tạo bằng: python -m src.connectors.eurostat_retail\n")
+    header = ("# Retail gross margin by country, source: Eurostat (sbs_na_dt_r2). Sector-wide figures, not any single company's.\n"
+              "# gross_margin_pct = gross_margin_m_eur / turnover_m_eur * 100 (computed in code). Turnover excludes VAT.\n"
+              "# Generated with: python -m src.connectors.eurostat_retail\n")
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(header + df.to_csv(index=False), encoding="utf-8")
     os.replace(tmp, path)

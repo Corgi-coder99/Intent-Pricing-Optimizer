@@ -1,7 +1,7 @@
-# THAM CHIẾU, CHƯA ĐƯỢC KIỂM CHỨNG: mức VAT (%) thay đổi theo luật và theo nhóm hàng. Hãy đối chiếu với nguồn chính thức
-# (ví dụ trang "VAT rates" của Ủy ban châu Âu và HMRC cho Anh) trước khi dùng cho quyết định thật.
-# Có thể ghi đè bằng file <data>/reference/vat_rates.csv cùng định dạng.
-# reduced_rate_food: mức áp dụng cho phần lớn thực phẩm (dữ liệu giá thị trường Open Prices chủ yếu là thực phẩm).
+# REFERENCE ONLY, NOT YET VERIFIED: VAT rates (%) change with the law and with the product group. Check them against an official
+# source (e.g. the European Commission "VAT rates" page, HMRC for the UK) before using them for real decisions.
+# Can be overridden with <data>/reference/vat_rates.csv in the same format.
+# reduced_rate_food: rate applying to most food (the Open Prices market data is mostly food).
 country,standard_rate,reduced_rate_food,verified
 FR,20,5.5,no
 DE,19,7,no

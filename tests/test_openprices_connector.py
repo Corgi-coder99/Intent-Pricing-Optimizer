@@ -23,15 +23,15 @@ def item(**over):
     return base
 
 
-# ---------------------------------------------------------------- URL / mạng
+# ---------------------------------------------------------------- URL / network
 @pytest.mark.parametrize("url", [
-    "http://prices.openfoodfacts.org/api/v1/prices",                      # không HTTPS
+    "http://prices.openfoodfacts.org/api/v1/prices",                      # not HTTPS
     "https://evil.com/api/v1/prices",
-    "https://prices.openfoodfacts.org.evil.com/api/v1/prices",            # subdomain giả
-    "https://prices.openfoodfacts.org@evil.com/api/v1/prices",            # mẹo userinfo
+    "https://prices.openfoodfacts.org.evil.com/api/v1/prices",            # fake subdomain
+    "https://prices.openfoodfacts.org@evil.com/api/v1/prices",            # userinfo trick
     "https://user:pw@prices.openfoodfacts.org/api/v1/prices",
     "https://prices.openfoodfacts.org:8443/api/v1/prices",
-    "https://prices.openfoodfacts.org/other",                             # sai đường dẫn
+    "https://prices.openfoodfacts.org/other",                             # wrong path
     "file:///etc/passwd",
 ])
 def test_url_allowlist_blocks_bad_urls(url):
@@ -58,7 +58,7 @@ def test_oversized_response_is_cut_off():
     assert op.read_capped(io.BytesIO(b"x" * 50), limit=50) == b"x" * 50
 
 
-# ---------------------------------------------------------------- làm sạch & whitelist
+# ---------------------------------------------------------------- sanitising & whitelist
 def test_only_whitelisted_fields_and_no_personal_data():
     row = op.parse_item(item())
     assert list(row) == op.OUTPUT_COLUMNS
@@ -91,7 +91,7 @@ def test_geo_out_of_range_becomes_null_not_error():
     assert r["lat"] is None and r["lon"] == 4.8
 
 
-# ---------------------------------------------------------------- tải, giới hạn, thử lại
+# ---------------------------------------------------------------- fetching, limits, retries
 def make_fetch(pages, calls):
     def fetch(url):
         calls.append(url)
@@ -157,7 +157,7 @@ def test_client_errors_and_bad_payloads_are_not_retried():
         n["c"] += 1
         raise urllib.error.HTTPError(url, 404, "nf", {}, None)
 
-    with pytest.raises(op.ConnectorError):          # 404 ngay trang 1 vẫn là lỗi thật
+    with pytest.raises(op.ConnectorError):          # a 404 on page 1 is still a real error
         op.fetch_prices(["EUR"], max_pages=1, fetch=not_found, sleep=lambda s: None)
     assert n["c"] == 1
     for payload in (b"not json", b'["list"]', b'{"items": "nope"}'):
@@ -165,7 +165,7 @@ def test_client_errors_and_bad_payloads_are_not_retried():
             op.fetch_prices(["EUR"], max_pages=1, fetch=lambda u, p=payload: p, sleep=lambda s: None)
 
 
-# ---------------------------------------------------------------- tích hợp với pipeline
+# ---------------------------------------------------------------- pipeline integration
 def test_landing_file_flows_through_pipeline_and_is_idempotent(tmp_path):
     layout = Layout(tmp_path).ensure()
     rows = [op.parse_item(item(id=i, price=1 + i, location={"osm_name": f"S{i}", "osm_address_country_code": "FR",
@@ -173,7 +173,7 @@ def test_landing_file_flows_through_pipeline_and_is_idempotent(tmp_path):
     rows.append(op.parse_item(item(product_name="=cmd|calc!A0", price=9)))
     df = pd.DataFrame(rows, columns=op.OUTPUT_COLUMNS)
     f1 = op.write_to_landing(df, layout.landing)
-    assert op.write_to_landing(df, layout.landing) == f1                   # cùng nội dung -> cùng file
+    assert op.write_to_landing(df, layout.landing) == f1                   # same content -> same file
     r = run_pipeline(layout, isolate=False, policy=Policy())
     assert r["ok"], r
     assert r["results"]["silver_price_observation"]["rows_total"] == 6

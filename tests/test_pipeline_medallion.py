@@ -45,7 +45,7 @@ def test_end_to_end_and_idempotent_rerun(layout, sessions):
     r2 = run_pipeline(layout, isolate=False)
     assert r2["results"]["bronze_ingest"]["duplicate_files_skipped"] == 1
     assert r2["results"]["silver_session"]["batches"] == 0
-    assert r2["status"]["gold_sessions"] == "unchanged"      # đầu vào không đổi -> bỏ qua
+    assert r2["status"]["gold_sessions"] == "unchanged"      # inputs unchanged -> skipped
     assert len(silver(layout, "session")) == 400
 
 
@@ -59,7 +59,7 @@ def test_same_content_other_filename_is_not_duplicated(layout, sessions):
 
 def test_overlapping_batches_are_upserted(layout, sessions):
     put(layout, sessions.iloc[:300], "b1.csv")
-    put(layout, sessions.iloc[200:], "b2.csv")           # 100 dòng trùng session_id
+    put(layout, sessions.iloc[200:], "b2.csv")           # 100 rows with duplicate session_id
     r = run_pipeline(layout, isolate=False)
     s = silver(layout, "session")
     assert len(s) == 400 and s["session_id"].is_unique
@@ -88,7 +88,7 @@ def test_mixed_types_routed_and_unknown_kept_aside(layout, sessions):
     r = run_pipeline(layout, isolate=False)
     assert r["ok"] and r["results"]["bronze_ingest"]["unclassified"] == 1
     p = silver(layout, "price_observation")
-    assert len(p) == 2 and set(p["currency"]) == {"EUR", "GBP"}      # trùng bị khử, tiền tệ chuẩn hoá
+    assert len(p) == 2 and set(p["currency"]) == {"EUR", "GBP"}      # duplicates removed, currencies normalised
     assert (layout.bronze / "_unclassified").exists()
     assert (layout.gold / "competitor_prices.parquet").exists()
 
@@ -120,7 +120,7 @@ def test_failed_node_skips_dependents_without_retry(layout):
     g = {"a": Node("a", boom), "b": Node("b", lambda c: {}, ("a",)), "c": Node("c", lambda c: {})}
     r = run_pipeline(layout, graph=g)
     assert r["status"] == {"a": "failed", "b": "skipped_dependency", "c": "ok"} and calls["n"] == 1 and not r["ok"]
-    assert not (layout.state / "pipeline.lock").exists()           # khoá luôn được nhả
+    assert not (layout.state / "pipeline.lock").exists()           # the lock is always released
 
 
 def test_lock_blocks_second_runner_and_releases(layout):
@@ -129,7 +129,7 @@ def test_lock_blocks_second_runner_and_releases(layout):
     a.acquire()
     with pytest.raises(PipelineBusy):
         b.acquire()
-    b.release()                                                     # không được xoá khoá của người khác
+    b.release()                                                     # must not delete another owner's lock
     assert (layout.state / "l.lock").exists()
     a.release()
     b.acquire()

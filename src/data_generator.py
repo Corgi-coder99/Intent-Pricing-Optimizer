@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from src.config import RANDOM_SEED, RAW_DATASET_PATH
 
-# competitor_price = giá của đối thủ chính (dùng cho mô hình); `competitors` = 3 đối thủ để so sánh trực quan.
+# competitor_price = main competitor's price (used by the model); `competitors` = 3 competitors for visual comparison.
 PRODUCT_CATALOG = [
     {
         "product_id": "PRD-101",
@@ -48,15 +48,15 @@ PRODUCT_CATALOG = [
     },
 ]
 
-# Vùng địa lý (Việt Nam). price_sens: độ nhạy giá của vùng; demand: quy mô nhu cầu tương đối.
+# French sales regions (simulated). price_sens: regional price sensitivity; demand: relative market size.
 REGIONS = [
-    {"region": "Hà Nội", "lat": 21.03, "lon": 105.85, "price_sens": 1.00, "demand": 0.22},
-    {"region": "TP. Hồ Chí Minh", "lat": 10.78, "lon": 106.70, "price_sens": 0.90, "demand": 0.30},
-    {"region": "Đà Nẵng", "lat": 16.05, "lon": 108.20, "price_sens": 1.15, "demand": 0.12},
-    {"region": "Hải Phòng", "lat": 20.86, "lon": 106.68, "price_sens": 1.10, "demand": 0.10},
-    {"region": "Cần Thơ", "lat": 10.04, "lon": 105.78, "price_sens": 1.25, "demand": 0.10},
-    {"region": "Khánh Hòa", "lat": 12.24, "lon": 109.19, "price_sens": 1.05, "demand": 0.08},
-    {"region": "Đồng Nai", "lat": 10.95, "lon": 106.82, "price_sens": 1.20, "demand": 0.08},
+    {"region": "Lyon", "lat": 45.76, "lon": 4.84, "price_sens": 1.00, "demand": 0.22},
+    {"region": "Paris", "lat": 48.86, "lon": 2.35, "price_sens": 0.90, "demand": 0.30},
+    {"region": "Marseille", "lat": 43.30, "lon": 5.37, "price_sens": 1.15, "demand": 0.12},
+    {"region": "Lille", "lat": 50.63, "lon": 3.06, "price_sens": 1.10, "demand": 0.10},
+    {"region": "Toulouse", "lat": 43.60, "lon": 1.44, "price_sens": 1.25, "demand": 0.10},
+    {"region": "Bordeaux", "lat": 44.84, "lon": -0.58, "price_sens": 1.05, "demand": 0.08},
+    {"region": "Nantes", "lat": 47.22, "lon": -1.55, "price_sens": 1.20, "demand": 0.08},
 ]
 
 POSITIVE_REVIEWS = [
@@ -131,7 +131,7 @@ def generate_ecommerce_dataset(
         session_views = int(np.random.poisson(lam=4) + 1)
         cart_additions_7d = int(np.random.poisson(lam=28))
 
-        # Khách không có phàn nàn ít nhạy giá (Margin Expansion); khách chê đắt thì nhạy giá hơn
+        # Customers with no complaint are less price-sensitive (Margin Expansion); price-complaint customers are more sensitive
         issue_sens = {"none": 0.08, "price_value": 1.3}.get(true_issue, 1.0)
         sens = reg["price_sens"] * issue_sens
         logit = (
@@ -142,7 +142,7 @@ def generate_ecommerce_dataset(
             + 0.08 * min(session_views, 8)
             + 0.005 * cart_additions_7d
         )
-        # Lỗi chất lượng làm giảm chuyển đổi một cách mượt (không dùng bước nhảy theo ngưỡng giảm giá)
+        # Quality defects lower conversion smoothly (no step change at a discount threshold)
         if true_issue == "quality_defect":
             logit -= 0.5
 

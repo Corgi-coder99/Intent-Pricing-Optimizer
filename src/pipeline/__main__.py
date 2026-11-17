@@ -9,7 +9,7 @@ from src.pipeline import Layout, PipelineBusy, run_pipeline
 
 
 def check_file(path: Path, rtype: str) -> int:
-    """Chỉ đọc và báo cáo: không sao chép, không ghi trạng thái, không in nội dung dòng dữ liệu."""
+    """Read-only report: no copy, no state written, never prints row contents."""
     import pandas as pd
     from src.pipeline.contracts import CONTRACTS, clean, norm_col
     from src.pipeline.nodes import iter_raw
@@ -24,7 +24,7 @@ def check_file(path: Path, rtype: str) -> int:
     rows = good = rejected = dups = 0
     reasons: dict = {}
     extra_key = "columns_that_will_be_ignored" if contract.strict_columns else "extra_columns"
-    if missing:                                    # thiếu cột bắt buộc: báo cáo ngay, không đọc dữ liệu
+    if missing:                                    # missing required columns: report immediately, do not read the data
         print(json.dumps({"file": path.name, "type": rtype, "missing_required_columns": missing, extra_key: unknown},
                          indent=2, ensure_ascii=False))
         return 1

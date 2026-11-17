@@ -35,23 +35,23 @@ class DynamicPricingModel:
             reg_lambda=5.0,
             random_state=RANDOM_SEED,
             verbose=-1,
-            # Ràng buộc kinh tế: giá/ratio tăng -> chuyển đổi không tăng; sentiment tốt -> không giảm
-            # thứ tự: base_price, offered_price, discount_pct, comp_ratio, sentiment, pain, views, cart
+            # Economic constraints: higher price/ratio -> conversion does not rise; better sentiment -> does not fall
+            # order: base_price, offered_price, discount_pct, comp_ratio, sentiment, pain, views, cart
             monotone_constraints=[0, -1, 1, -1, 1, -1, 1, 1],
         )
         self.model.fit(X_train, y_train)
         preds = self.model.predict_proba(X_test)[:, 1]
         auc = roc_auc_score(y_test, preds)
-        # Lưu bằng định dạng văn bản gốc của LightGBM (KHÔNG dùng pickle): nạp file này không thể chạy mã tuỳ ý.
+        # Saved in LightGBM's native text format (NO pickle): loading this file cannot execute arbitrary code.
         tmp = self.model_path.with_name(self.model_path.name + f".{os.getpid()}.tmp")
         self.model.booster_.save_model(str(tmp))
-        os.replace(tmp, self.model_path)   # nguyên tử: API đang đọc không bao giờ thấy file dở
+        os.replace(tmp, self.model_path)   # atomic: the API reading the file never sees a half-written one
         self.model = lgb.Booster(model_file=str(self.model_path))
         return {"roc_auc": round(float(auc), 4)}
 
     @property
     def version(self) -> str:
-        """Mã phiên bản mô hình (SHA-256 của file): hai máy cùng mã thì cho cùng kết quả với cùng đầu vào."""
+        """Model version (SHA-256 of the file): two machines with the same version give the same output for the same input."""
         return hashlib.sha256(self.model_path.read_bytes()).hexdigest()[:12] if self.model_path.exists() else "none"
 
     def load(self) -> None:

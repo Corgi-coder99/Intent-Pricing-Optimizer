@@ -3,15 +3,18 @@ from typing import Dict, Optional
 import pandas as pd
 from src.data_generator import PRODUCT_CATALOG
 
+ALL = "__all__"                       # sentinel meaning "no filter" (display text is localized in the UI)
+OUR_LABEL = "Recommended (ours)"      # row label for our own price in the competitor table
+
 
 def filter_sessions(df: pd.DataFrame, category: Optional[str] = None,
                     product_id: Optional[str] = None, region: Optional[str] = None) -> pd.DataFrame:
     out = df
-    if category and category != "Tất cả":
+    if category and category != ALL:
         out = out[out["category"] == category]
     if product_id:
         out = out[out["product_id"] == product_id]
-    if region and region != "Tất cả":
+    if region and region != ALL:
         out = out[out["region"] == region]
     return out
 
@@ -29,8 +32,7 @@ def _agg(g: pd.core.groupby.DataFrameGroupBy) -> pd.DataFrame:
 
 
 def region_summary(df: pd.DataFrame) -> pd.DataFrame:
-    out = _agg(df.groupby(["region", "lat", "lon"]))
-    return out
+    return _agg(df.groupby(["region", "lat", "lon"]))
 
 
 def category_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -38,14 +40,13 @@ def category_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def complaint_breakdown(df: pd.DataFrame) -> pd.DataFrame:
-    t = df["complaint_category"].value_counts().rename_axis("complaint_category").reset_index(name="sessions")
-    return t
+    return df["complaint_category"].value_counts().rename_axis("complaint_category").reset_index(name="sessions")
 
 
 def competitor_table(product_id: str, our_price: float) -> pd.DataFrame:
-    """Giá của ta so với 3 đối thủ của sản phẩm, kèm chênh lệch %."""
+    """Our price vs the product's 3 competitors, with the percentage gap."""
     prod = next(p for p in PRODUCT_CATALOG if p["product_id"] == product_id)
-    rows = [{"seller": "Giá đề xuất (ta)", "price": our_price}]
+    rows = [{"seller": OUR_LABEL, "price": our_price}]
     rows += [{"seller": name, "price": price} for name, price in prod["competitors"].items()]
     t = pd.DataFrame(rows)
     t["vs_ours_pct"] = (t["price"] / our_price - 1.0) * 100.0
@@ -53,7 +54,7 @@ def competitor_table(product_id: str, our_price: float) -> pd.DataFrame:
 
 
 def category_competitor_gap(df: pd.DataFrame) -> pd.DataFrame:
-    """Chênh lệch giá trung bình của ta so với đối thủ chính, theo ngành hàng."""
+    """Average price gap between us and the main competitor, per category."""
     cat = df.groupby("category").agg(our_price=("offered_price", "mean"), competitor_price=("competitor_price", "mean"))
     cat["gap_pct"] = (cat["our_price"] / cat["competitor_price"] - 1.0) * 100.0
     return cat.reset_index()

@@ -1,9 +1,9 @@
-"""REST API: đóng gói 3 tầng (AI -> ML -> Agent) thành dịch vụ có thể tích hợp vào hệ thống thật.
+"""REST API: packages the 3 tiers (AI -> ML -> Agent) into a service that can be integrated into real systems.
 
-Chạy:  python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
-Xác thực (header X-API-Key): mỗi người dùng một khoá riêng (python -m src.auth create), hoặc khoá quản trị API_KEY trong
-biến môi trường. Chưa cấu hình gì: chế độ dev (mở) trừ khi REQUIRE_API_KEY=1 (khi đó trả 503, không bao giờ mở công khai).
-Sau reverse proxy đáng tin cậy, đặt TRUST_PROXY=1 để lấy IP thật từ X-Forwarded-For (phần tử cuối do proxy thêm).
+Run:  python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+Authentication (X-API-Key header): one key per user (python -m src.auth create), or the admin key API_KEY in the environment.
+Nothing configured: dev mode (open) unless REQUIRE_API_KEY=1 (then 503, never silently open).
+Behind a trusted reverse proxy, set TRUST_PROXY=1 to read the real client IP from X-Forwarded-For (last entry added by the proxy).
 """
 import hmac
 import ipaddress
@@ -49,9 +49,9 @@ app = FastAPI(title="Intent-Driven Pricing API", version="1.1.0", lifespan=lifes
 
 
 MAX_BODY_BYTES = 64 * 1024
-RATE_LIMIT_PER_MIN = 600          # theo IP (văn phòng dùng chung một IP nên đặt cao)
-USER_RATE_LIMIT_PER_MIN = 120     # theo từng khoá: một người dùng không làm nghẽn người khác
-AUTH_FAIL_LIMIT_PER_MIN = 10      # sai khoá quá số này thì IP bị chặn tạm (chống dò khoá)
+RATE_LIMIT_PER_MIN = 600          # per IP (an office often shares one IP, so keep this high)
+USER_RATE_LIMIT_PER_MIN = 120     # per key: one heavy user cannot starve the others
+AUTH_FAIL_LIMIT_PER_MIN = 10      # more wrong keys than this and the IP is blocked temporarily (anti key-guessing)
 _hits: Dict[str, deque] = defaultdict(deque)
 _user_hits: Dict[str, deque] = defaultdict(deque)
 _fails: Dict[str, deque] = defaultdict(deque)
@@ -90,7 +90,7 @@ def client_ip(request: Request) -> str:
         fwd = request.headers.get("x-forwarded-for", "")
         last = fwd.split(",")[-1].strip() if fwd else ""
         try:
-            return str(ipaddress.ip_address(last))      # chỉ nhận địa chỉ IP hợp lệ, không nhận chuỗi tuỳ ý
+            return str(ipaddress.ip_address(last))      # accept only valid IP addresses, never arbitrary strings
         except ValueError:
             pass
     return direct
@@ -98,7 +98,7 @@ def client_ip(request: Request) -> str:
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
-    """Giới hạn kích thước body, tốc độ theo IP, số lần sai khoá; header bảo mật; nhật ký kiểm toán (không ghi nội dung)."""
+    """Limits body size, per-IP rate, failed-auth attempts; adds security headers and an audit log (never logs content)."""
     t0 = time.monotonic()
     rid = uuid.uuid4().hex
     who = client_ip(request)
@@ -132,7 +132,7 @@ def authenticate_request(x_api_key: Optional[str]) -> Principal:
     if not env_key and not auth.has_keys():
         if os.getenv("REQUIRE_API_KEY") == "1":
             raise HTTPException(status_code=503, detail="Server misconfigured: no API key configured")
-        return Principal("dev", "dev", "admin")                   # chế độ dev cục bộ
+        return Principal("dev", "dev", "admin")                   # local dev mode
     token = x_api_key or ""
     if env_key and hmac.compare_digest(token.encode(), env_key.encode()):
         return Principal("env", "env-admin", "admin")
@@ -179,6 +179,7 @@ class PriceIn(BaseModel):
     pain_point_severity: Optional[float] = Field(default=None, ge=0, le=1)
     session_views: float = Field(default=4.0, ge=0, le=1000)
     cart_additions_7d: float = Field(default=25.0, ge=0, le=100000)
+    lang: str = Field(default="en", pattern="^(en|fr)$")   # language of the executive summary
 
     @model_validator(mode="after")
     def need_signal(self):
@@ -211,7 +212,7 @@ _CACHE_MAX = 5000
 
 
 def analyze_cached(text: str) -> Dict[str, object]:
-    """Mỗi review khác nhau chỉ phân tích một lần (tiết kiệm token khi bật LLM)."""
+    """Each distinct review is analysed only once (saves tokens when the LLM is on)."""
     if text not in _review_cache:
         if len(_review_cache) >= _CACHE_MAX:
             _review_cache.pop(next(iter(_review_cache)))
@@ -226,7 +227,7 @@ def analyze_review(body: ReviewIn) -> Dict[str, object]:
 
 @app.post("/v1/admin/reload", dependencies=[Depends(require_admin)])
 def reload_model() -> Dict[str, object]:
-    """Nạp lại mô hình sau khi pipeline huấn luyện lại, không cần khởi động lại dịch vụ. Chỉ vai trò admin."""
+    """Reload the model after the pipeline retrains, without restarting the service. Admin role only."""
     model = DynamicPricingModel()
     try:
         model.load()
@@ -263,6 +264,6 @@ def recommend(body: PriceIn) -> Dict[str, object]:
     complaints = [] if sig["category"] in ("none", "unknown") else [str(sig["category"])]
     decision = state["agent"].recommend_action(  # type: ignore[union-attr]
         product_name=body.product_name, base_price=body.base_price, sim_df=sim,
-        top_complaints=complaints, current_sentiment=float(sig["sentiment"]),
+        top_complaints=complaints, current_sentiment=float(sig["sentiment"]), lang=body.lang,
     )
     return {"signals": sig, "decision": decision, "model_version": state.get("model_version")}

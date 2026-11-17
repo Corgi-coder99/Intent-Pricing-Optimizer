@@ -1,4 +1,4 @@
-"""Dữ liệu cho trang dashboard so sánh quốc gia EU/UK (đọc bảng gold/silver, không ghi gì)."""
+"""Data for the EU/UK country-comparison dashboard page (reads gold/silver tables, writes nothing)."""
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -9,7 +9,7 @@ from src.pipeline.infra import Layout
 
 
 def load_market(root: Optional[Path] = None) -> Optional[Dict[str, object]]:
-    """None nếu pipeline chưa tạo bảng `market_margin`."""
+    """None if the pipeline has not built the `market_margin` table yet."""
     layout = Layout(root or DATA_DIR)
     gold = layout.gold / "market_margin.parquet"
     if not gold.exists():
@@ -36,8 +36,8 @@ def load_market(root: Optional[Path] = None) -> Optional[Dict[str, object]]:
 
 
 def country_summary(market: pd.DataFrame, only_confident: bool = False, countries: Optional[List[str]] = None) -> pd.DataFrame:
-    """Theo quốc gia (trừ nước nhà): số sản phẩm so sánh được, chênh lệch giá trung vị so với nước nhà, biên giả định trung vị,
-    biên ngành (Eurostat)."""
+    """Per country (excluding the home country): number of comparable products, median price gap vs home, median scenario margin,
+    sector margin (Eurostat)."""
     d = market[(market["status"] == "ok") & (market["country"] != market["home_country"])].dropna(subset=["vs_home_pct"])
     if only_confident:
         d = d[d["confidence"] == "ok"]
@@ -53,7 +53,7 @@ def country_summary(market: pd.DataFrame, only_confident: bool = False, countrie
 
 
 def comparable_products(market: pd.DataFrame, only_confident: bool = False) -> List[str]:
-    """Mã sản phẩm có giá hợp lệ ở từ 2 quốc gia trở lên."""
+    """Product codes with valid prices in two or more countries."""
     d = market[market["status"] == "ok"].dropna(subset=["market_net_eur"])
     if only_confident:
         d = d[d["confidence"] == "ok"]
@@ -61,7 +61,7 @@ def comparable_products(market: pd.DataFrame, only_confident: bool = False) -> L
     codes = n[n >= 2].index
     home = set(d[d["country"] == d["home_country"]]["product_code"])
     obs = d.groupby("product_code")["n_obs"].sum()
-    # sản phẩm có dữ liệu nước nhà và nhiều quan sát nhất lên đầu (cột "% vs nước nhà" mới có nghĩa)
+    # products with home-country data and the most observations come first (the '% vs home' column is only meaningful then)
     return sorted(codes, key=lambda c: (c not in home, -float(obs.get(c, 0)), c))
 
 

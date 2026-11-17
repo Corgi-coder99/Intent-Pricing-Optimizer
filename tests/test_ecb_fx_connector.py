@@ -9,9 +9,9 @@ SAMPLE = (
     "KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE,OBS_STATUS\n"
     "EXR.D.GBP.EUR.SP00.A,D,GBP,EUR,SP00,A,2026-11-14,0.8600,A\n"
     "EXR.D.SEK.EUR.SP00.A,D,SEK,EUR,SP00,A,2026-11-14,11.0000,A\n"
-    "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-11-14,1.1000,A\n"          # ngoài phạm vi
-    "EXR.D.PLN.EUR.SP00.A,D,PLN,EUR,SP00,A,not-a-date,4.2,A\n"             # ngày hỏng
-    "EXR.D.DKK.EUR.SP00.A,D,DKK,EUR,SP00,A,2026-11-14,-7.4,A\n"            # giá trị âm
+    "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-11-14,1.1000,A\n"          # out of scope
+    "EXR.D.PLN.EUR.SP00.A,D,PLN,EUR,SP00,A,not-a-date,4.2,A\n"             # corrupt date
+    "EXR.D.DKK.EUR.SP00.A,D,DKK,EUR,SP00,A,2026-11-14,-7.4,A\n"            # negative value
     "EXR.D.CZK.EUR.SP00.A,D,CZK,EUR,SP00,A,2026-11-14,abc,A\n"
 )
 

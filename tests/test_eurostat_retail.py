@@ -8,7 +8,7 @@ from src.connectors.openprices import ConnectorError
 
 
 def jsonstat(values_by_key):
-    """Dựng payload JSON-stat 2.0 đúng cấu trúc thật: id=[freq,nace_r2,indic_sb,geo,time], value là dict theo vị trí phẳng."""
+    """Build a JSON-stat 2.0 payload with the real structure: id=[freq,nace_r2,indic_sb,geo,time], value is a dict keyed by flat position."""
     geos, naces, inds, times = ["FR", "UK"], ["G47", "G4711"], list(es.INDICATORS), ["2019", "2018"]
     ids = ["freq", "nace_r2", "indic_sb", "geo", "time"]
     size = [1, len(naces), len(inds), len(geos), len(times)]
@@ -27,7 +27,7 @@ def jsonstat(values_by_key):
 DATA = {
     ("FR", "G4711", "2019", "V12110"): 227685.6, ("FR", "G4711", "2019", "V12130"): 47857.6,
     ("FR", "G4711", "2019", "V92110"): 2.7,
-    ("UK", "G4711", "2018", "V12110"): 197708.9, ("UK", "G4711", "2018", "V12130"): 62891.1,   # UK chỉ có 2018
+    ("UK", "G4711", "2018", "V12110"): 197708.9, ("UK", "G4711", "2018", "V12130"): 62891.1,   # UK only has 2018
     ("FR", "G47", "2019", "V12110"): 481070.1, ("FR", "G47", "2019", "V12130"): 137434.4,
 }
 
@@ -37,12 +37,12 @@ def test_parse_and_table_use_latest_valid_year_and_map_uk_to_gb():
     assert df.loc[("FR", "G4711"), "gross_margin_pct"] == pytest.approx(47857.6 / 227685.6 * 100, abs=0.01)
     assert df.loc[("FR", "G4711"), "year"] == 2019 and df.loc[("GB", "G4711"), "year"] == 2018
     assert df.loc[("GB", "G4711"), "gross_margin_pct"] == pytest.approx(31.81, abs=0.01)
-    assert df.loc[("FR", "G47"), "gross_operating_rate_pct"] != df.loc[("FR", "G47"), "gross_operating_rate_pct"]  # NaN: không có
+    assert df.loc[("FR", "G47"), "gross_operating_rate_pct"] != df.loc[("FR", "G47"), "gross_operating_rate_pct"]  # NaN: not provided
 
 
 def test_implausible_rows_are_dropped():
     bad = dict(DATA)
-    bad[("FR", "G47", "2019", "V12130")] = 999999999.0                  # biên gộp lớn hơn doanh thu
+    bad[("FR", "G47", "2019", "V12130")] = 999999999.0                  # gross margin larger than turnover
     df = es.build_table(es.parse_jsonstat(jsonstat(bad)), "2026-11-17")
     assert not ((df["country"] == "FR") & (df["nace_r2"] == "G47")).any()
 
@@ -88,7 +88,7 @@ def test_retries_transient_errors_only():
 def test_pandemic_year_2020_is_excluded_for_comparability():
     with_2020 = dict(DATA)
     with_2020[("FR", "G4711", "2020", "V12110")] = 1000.0
-    with_2020[("FR", "G4711", "2020", "V12130")] = 900.0               # biên 90% bất thường của năm 2020
-    # payload thật có 2020 trong chiều thời gian; ở đây dùng hàm lọc trực tiếp trên dict giá trị
+    with_2020[("FR", "G4711", "2020", "V12130")] = 900.0               # abnormal 90% margin in 2020
+    # the real payload has 2020 on the time axis; here the filter is applied directly to the value dict
     df = es.build_table(with_2020, "2026-11-17").set_index(["country", "nace_r2"])
     assert df.loc[("FR", "G4711"), "year"] == 2019

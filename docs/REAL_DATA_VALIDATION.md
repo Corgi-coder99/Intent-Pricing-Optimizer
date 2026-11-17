@@ -1,44 +1,44 @@
-# Kiểm chứng mô hình bằng dữ liệu thật, và đánh giá nguồn mới
+# Validating the model with real data, and evaluating new sources
 
-Tạo bằng `python -m src.real_elasticity` (số liệu ngày 2026-11-17). Kết quả đầy đủ: `data/reports/real_elasticity.json` (không đưa vào git).
+Produced with `python -m src.real_elasticity` (figures of 2026-11-17). Full output: `data/reports/real_elasticity.json` (not in git).
 
-## 1. Độ nhạy giá: mô phỏng so với giao dịch thật
-Nguồn thật: Online Retail II (Chen, D. 2012, UCI, DOI 10.24432/C5CG6D, **CC BY 4.0**), giao dịch ẩn danh của một nhà bán lẻ trực tuyến
-ở Anh, 12/2009 đến 12/2011, đọc (chỉ đọc) từ bảng `clean_lines` của dự án online-retail-insights. Mức quan sát: sản phẩm x tuần.
-Chỉ giữ đơn bán (loại trả hàng, mã không phải sản phẩm, giá <= 0), sản phẩm có ≥30 tuần, giá biến động (CV ≥ 5%, ≥3 mức giá),
-tuần có ≥2 hoá đơn, và loại giá cực đoan so với trung vị.
+## 1. Price sensitivity: simulation vs real transactions
+Real source: Online Retail II (Chen, D. 2012, UCI, DOI 10.24432/C5CG6D, **CC BY 4.0**), anonymised transactions of a UK online
+retailer, 12/2009 to 12/2011, read (read-only) from the `clean_lines` table of the online-retail-insights project. Unit of observation: product x week.
+Kept only: sales (no returns, no non-product codes, no price <= 0), products with ≥30 weeks, price variation (CV ≥ 5%, ≥3 price levels),
+weeks with ≥2 invoices, and extreme prices relative to the median removed.
 
-| Đối tượng | Độ co giãn của cầu theo giá | Số sản phẩm | Dùng được? |
+| Subject | Price elasticity of demand | Products | Usable? |
 |---|---|---|---|
-| Toàn bộ dữ liệu | **−2,27** (95%: −2,34 đến −2,19) | 1.709 | Có |
-| Anh | −2,20 (95%: −2,28 đến −2,13) | 1.640 | Có |
-| EU ngoài Anh | −8,47 | **46** | **Không**: quá ít sản phẩm, đơn sỉ rời rạc |
-| Mô phỏng, trung bình theo doanh thu | **−2,44** | 50.000 phiên | (đối chiếu) |
-| Mô phỏng, trung bình / trung vị | −3,02 / −1,71 | 50.000 phiên | (đối chiếu) |
+| All data | **−2.27** (95%: −2.34 to −2.19) | 1,709 | Yes |
+| UK | −2.20 (95%: −2.28 to −2.13) | 1,640 | Yes |
+| EU other than UK | −8.47 | **46** | **No**: too few products, lumpy wholesale orders |
+| Simulation, revenue-weighted average | **−2.44** | 50,000 sessions | (comparison) |
+| Simulation, mean / median | −3.02 / −1.71 | 50,000 sessions | (comparison) |
 
-**Kết luận:** mức nhạy giá TỔNG THỂ của mô phỏng (−2,4) nằm sát giá trị quan sát thật (−2,3), nên không chỉnh lại dữ liệu mô phỏng.
-Mình kiểm tra bộ ước lượng trước trên dữ liệu tổng hợp có độ co giãn biết trước (tìm lại đúng −1,5 và −0,4; có test).
+**Conclusion:** the OVERALL price sensitivity of the simulation (−2.4) is close to the observed real value (−2.3), so the simulated data is not recalibrated.
+The estimator was first checked on synthetic data with known elasticity (it recovers −1.5 and −0.4; covered by tests).
 
-**Chưa được kiểm chứng, vẫn là giả định:** sự khác biệt theo loại khiếu nại trong mô phỏng (khách chê đắt −6,0; không phàn nàn −1,3;
-lỗi chất lượng −3,1; vận chuyển −2,4). Dữ liệu thật ở trên không có review nên không kiểm tra được phần này.
+**Not verified, still an assumption:** the differences by complaint type in the simulation (price-complaint customers −6.0; no complaint −1.3;
+quality defect −3.1; shipping −2.4). The real data above has no reviews, so this part cannot be checked.
 
-**Giới hạn của kiểm chứng:** (a) đây là độ co giãn QUAN SÁT, không phải nhân quả (khuyến mãi trùng thời điểm nhu cầu cao, giá sỉ theo bậc
-số lượng); (b) sản phẩm là quà tặng/đồ gia dụng bán sỉ-lẻ ở Anh, không phải thực phẩm hay điện tử; (c) cầu theo số lượng khác cầu theo xác suất
-chuyển đổi (hai đại lượng chỉ so sánh được ở mức độ lớn).
+**Limits of the validation:** (a) this is an OBSERVED elasticity, not a causal one (promotions coincide with high-demand periods, tiered wholesale pricing);
+(b) the products are gifts/homeware sold wholesale-and-retail in the UK, not food or electronics; (c) quantity demand differs from conversion probability
+(the two are only comparable at the order-of-magnitude level).
 
-## 2. Đánh giá nguồn mới (quy trình: giấy phép, truy cập, độ phủ, độ tin cậy, rủi ro)
-| Nguồn | Quyết định | Lý do |
+## 2. Evaluation of new sources (process: licence, access, coverage, reliability, risk)
+| Source | Decision | Reason |
 |---|---|---|
-| Online Retail II (UCI) | **Dùng** (kiểm chứng Tầng 2) | CC BY 4.0, ẩn danh, đã có sẵn, có cột quốc gia |
-| Open Prices, ECB, Eurostat | **Dùng** (đã nạp trước đó) | Mở, truy cập qua API chính thức |
-| Amazon Reviews Multi (có tiếng Pháp/Đức) | **Loại** | Đã ngừng phát hành; giấy phép chỉ cho nghiên cứu phi thương mại và cấm cả khi nhận phí (kể cả thực tập có lương) |
-| Các bản sao review gắn Apache/CC0/CC BY | **Chưa dùng** | Nhãn trên bản sao không thay đổi điều khoản của dữ liệu gốc (Amazon); không xác minh được giấy phép gốc |
-| Allociné (đánh giá phim, tiếng Pháp) | **Loại** | Không phải thương mại điện tử |
-| Webis-CLS-10 (review sách/DVD/nhạc) | **Loại** | Giấy phép không rõ, không phải nhóm hàng của dự án |
-| Women's E-Commerce Clothing Reviews (Kaggle, CC0 theo trang Kaggle) | **Ứng viên, chưa dùng** | Cần tài khoản Kaggle để tải; giấy phép chỉ xác nhận qua trang tổng hợp. Nếu bạn tự tải về, có thể thả vào `data/landing/` sau khi đổi tên cột theo hợp đồng `review` |
-| Amazon (phí bán, kết quả phân khúc International) | **Chưa dùng** | Không kiểm chứng được ở nguồn gốc (xem `docs/DATA_SOURCES.md`) |
+| Online Retail II (UCI) | **Use** (validates Tier 2) | CC BY 4.0, anonymised, already available, has a country column |
+| Open Prices, ECB, Eurostat | **Use** (loaded earlier) | Open, official APIs |
+| Amazon Reviews Multi (has French/German) | **Reject** | Defunct; licence is non-commercial research only and bans use where a fee is received (including paid internships) |
+| Mirrors of review datasets tagged Apache/CC0/CC BY | **Not used yet** | A tag on a mirror does not change the terms of the original data (Amazon); original licence could not be verified |
+| Allociné (French movie reviews) | **Reject** | Not e-commerce |
+| Webis-CLS-10 (book/DVD/music reviews) | **Reject** | Unclear licence, not the project's product categories |
+| Women's E-Commerce Clothing Reviews (Kaggle, CC0 per the Kaggle page) | **Candidate, not used** | Needs a Kaggle account to download; the licence is only confirmed via an aggregator page. If you download it yourself, you can drop it into `data/landing/` after renaming columns to the `review` contract |
+| Amazon (selling fees, International segment results) | **Not used** | Could not be verified at the primary source (see `docs/DATA_SOURCES.md`) |
 
-**Tầng 1 (đọc review) vẫn chưa được kiểm chứng trên review thật.** Bộ phân loại hiện chỉ biết khoảng 20 từ khoá tiếng Anh; chỉ nên coi là
-bản minh hoạ cho đến khi được đo độ chính xác trên review thật có giấy phép sạch.
-Lỗi đã bắt được nhờ kiểm thử trình duyệt: câu "Packaging felt cheap and protective seal was broken" bị gán nhầm `quality_defect`
-(trước đây lấy loại khớp cuối cùng); đã sửa thành loại có nhiều từ khoá khớp nhất.
+**Tier 1 (review reading) is still not validated on real reviews.** The classifier only knows about 20 English keywords; treat it as an illustration
+until its accuracy is measured on real reviews with a clean licence.
+A bug caught by browser testing: the sentence "Packaging felt cheap and protective seal was broken" was mislabelled `quality_defect`
+(it used the last matching category); it now picks the category with the most keyword hits.

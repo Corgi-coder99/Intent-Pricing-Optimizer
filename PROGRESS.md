@@ -1,18 +1,23 @@
 # PROGRESS.md
 
-## Status: MVP + BI dashboard hoàn tất, 6/6 business-scenario tests PASS
+## Status: working end-to-end; bilingual (EN/FR) dashboard; real EU/UK market data wired in
 
 ### Done
-- 3 tầng AI (lexicon/LLM) -> ML (LightGBM, monotone constraints) -> Agent (chiến lược giá), có RAG TF-IDF.
-- Dữ liệu mô phỏng 50.000 phiên, có thêm chiều vùng địa lý (7 vùng VN), 3 đối thủ/sản phẩm.
-- `app/streamlit_app.py`: giao diện kiểu BI (KPI cards, gauge, bản đồ vùng, so sánh đối thủ & ngành hàng, bộ lọc).
-- `tests/test_business_scenarios.py`: 6 kịch bản nghiệp vụ.
+- 3 tiers: review signal extractor (offline lexicon or LLM) -> LightGBM price elasticity (monotone constraints, native text model) -> pricing agent (EN/FR), with TF-IDF RAG.
+- Simulated data: 50,000 sessions in 7 French sales regions, 3 competitors per product, prices in EUR.
+- Bronze/silver/gold pipeline: contracts, deduplication, quarantine, history, tombstones, retention, timeouts, locks (see `docs/DATA_PIPELINE.md`).
+- Connectors: Open Prices (country-balanced), ECB exchange rates, Eurostat retail margins; all hardened (see `docs/SECURITY.md`).
+- REST API with per-user keys, roles, audit log, rate limits; Docker image.
+- Dashboard: main page + "Country comparison" page, English/French switch; verified in Chrome.
+- Real-data validation of price elasticity (Online Retail II): real -2.27 vs simulated -2.44 (revenue-weighted).
+- 160+ tests.
 
-### Tuning đã làm (để 6/6 PASS)
-- data_generator: độ nhạy giá phụ thuộc loại phàn nàn (none 0.08x, price_value 1.3x) và vùng; bỏ bước nhảy theo ngưỡng giảm giá.
-- ml_pricing_model: monotone_constraints, mô hình mượt hơn (16 lá, min_child_samples=300).
-- Mặc định 50.000 mẫu (5.000 mẫu quá nhiễu cho đường cong giá).
+### Known limits
+- The conversion model is trained on simulated data; review reading (Tier 1) is not validated on real reviews.
+- No real branch cost data: margins in the country comparison are a hypothetical scenario. The VAT table is unverified.
+- Few products have prices in several countries; only a small share of rows are "reliable" (≥2 stores, ≥3 observations).
 
-### Limits
-- Dữ liệu 100% mô phỏng; ROC-AUC ~0.65. Đây là demo logic liên tầng, không phải số liệu thật.
-- Bước tiếp theo: Olist adapter (dữ liệu thật), Dockerfile.
+### Next ideas
+- Validate Tier 1 on a real review dataset with a clean licence (candidate: Women's E-Commerce Clothing Reviews, CC0 on Kaggle; download it yourself).
+- Plug in real branch costs through the `branch_cost` contract (`python -m src.pipeline check` validates a file first).
+- Push to GitHub (never commit `data/`, `.env` or API keys).

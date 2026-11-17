@@ -1,11 +1,11 @@
-"""Connector tỷ giá tham chiếu của Ngân hàng Trung ương châu Âu (ECB) -> file CSV ở landing/ cho hợp đồng `fx_rate`.
+"""ECB reference exchange-rate connector (European Central Bank) -> CSV file in landing/ for the `fx_rate` contract.
 
-ECB công bố tỷ giá dạng "số đơn vị ngoại tệ cho 1 EUR"; connector đổi thành eur_per_unit = 1 / tỷ giá.
-CHƯA kiểm chứng với phản hồi thật: định dạng CSV được dựng theo tài liệu của ECB và kiểm thử bằng dữ liệu mẫu.
-Chạy lần đầu ngoài thực tế, hãy kiểm tra số liệu (GBP/EUR hiện quanh 0,8-0,9 đơn vị GBP cho 1 EUR).
+The ECB publishes rates as "units of foreign currency per 1 EUR"; the connector converts them to eur_per_unit = 1 / rate.
+Verified live on 2026-11-17 (GBP/EUR matched the ECB figure); the CSV layout is also covered by sample-data tests.
+Sanity check: GBP/EUR is currently around 0.8-0.9 GBP per 1 EUR.
 
-Lớp bảo vệ giống connector Open Prices: HTTPS tới đúng một host và một đường dẫn, kiểm tra TLS, không theo chuyển hướng,
-giới hạn dung lượng/timeout, kiểm tra từng giá trị, không gửi thông tin cá nhân, ghi file bằng tmp + rename.
+Same protections as the Open Prices connector: HTTPS to a single host and path, TLS verification, no redirects,
+size/timeout limits, per-value validation, no personal data sent, files written via tmp + rename.
 """
 import csv
 import hashlib
@@ -60,7 +60,7 @@ def http_get(url: str) -> bytes:
 
 
 def parse_rates(payload: bytes) -> pd.DataFrame:
-    """CSV của ECB -> (rate_date, currency, eur_per_unit). Bỏ dòng không hợp lệ; lỗi nếu không còn dòng nào."""
+    """ECB CSV -> (rate_date, currency, eur_per_unit). Invalid rows are dropped; raises if none remain."""
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -84,7 +84,7 @@ def parse_rates(payload: bytes) -> pd.DataFrame:
 
 def fetch_rates(currencies: Iterable[str] = CURRENCIES, fetch: Callable[[str], bytes] = http_get,
                 sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
-    """Thử lại tối đa MAX_ATTEMPTS lần khi mạng chậm/lỗi tạm thời (5xx, timeout); lỗi 4xx và dữ liệu hỏng thì dừng ngay."""
+    """Retry up to MAX_ATTEMPTS times on slow network/transient errors (5xx, timeout); 4xx and corrupt data stop immediately."""
     url, last = build_url(currencies), None
     for attempt in range(MAX_ATTEMPTS):
         try:

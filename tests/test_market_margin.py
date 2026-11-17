@@ -33,15 +33,15 @@ GB_ROWS = [obs("GB", "GBP", f"G{i}", 2.00) for i in range(4)]
 def test_prices_converted_to_net_eur_and_compared_with_home_country(layout):
     fx = [{"rate_date": "2026-01-10", "currency": "GBP", "eur_per_unit": 1.20}]
     r, m = build(layout, FR_ROWS + GB_ROWS, fx=fx)
-    assert m.loc["FR", "market_net_eur"] == pytest.approx(2.20 / 1.055)          # VAT thực phẩm FR 5,5%
-    assert m.loc["GB", "market_net_eur"] == pytest.approx(2.00 * 1.20)           # VAT thực phẩm GB 0%
+    assert m.loc["FR", "market_net_eur"] == pytest.approx(2.20 / 1.055)          # FR food VAT 5.5%
+    assert m.loc["GB", "market_net_eur"] == pytest.approx(2.00 * 1.20)           # GB food VAT 0%
     assert m.loc["GB", "vs_home_pct"] == pytest.approx((2.4 / (2.20 / 1.055) - 1) * 100, abs=0.01)
     assert m.loc["FR", "vs_home_pct"] == 0
     assert r["results"]["gold_market_margin"]["products_in_2plus_countries"] == 1
 
 
 def test_missing_fx_rate_is_flagged_not_guessed(layout):
-    r, m = build(layout, FR_ROWS + GB_ROWS)                                         # không có tỷ giá GBP
+    r, m = build(layout, FR_ROWS + GB_ROWS)                                         # no GBP exchange rate
     assert m.loc["GB", "status"] == "fx_missing" and pd.isna(m.loc["GB", "market_net_eur"])
     assert m.loc["FR", "status"] == "ok"
     assert pd.isna(m.loc["GB", "vs_home_pct"])

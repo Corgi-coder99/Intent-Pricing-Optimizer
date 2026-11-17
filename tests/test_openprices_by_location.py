@@ -37,8 +37,8 @@ def test_country_quotas_balance_countries_and_ignore_unrequested_ones():
     calls = []
     df = op.fetch_prices_by_location(["FR", "DE", "IE"], per_country_max=25, per_location_max=100,
                                      fetch=router(locations, prices, calls), sleep=lambda s: None)
-    assert df["country"].value_counts().to_dict() == {"FR": 25, "DE": 25, "IE": 10}    # FR không áp đảo DE/IE
-    assert not any("location_id=5" in c for c in calls)                                  # nước không yêu cầu: không tải
+    assert df["country"].value_counts().to_dict() == {"FR": 25, "DE": 25, "IE": 10}    # FR does not dominate DE/IE
+    assert not any("location_id=5" in c for c in calls)                                  # country not requested: not downloaded
     assert "owner" not in df.columns
 
 

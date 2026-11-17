@@ -1,8 +1,8 @@
-# Số liệu công bố của Zalando SE (sàn thương mại điện tử thời trang, trụ sở Đức), năm tài chính 2024.
-# Nguồn gốc: báo cáo kết quả hợp nhất công bố ngày 2025-03-06, đọc trực tiếp ngày 2026-11-17.
-# Đây là số tổng hợp của MỘT công ty thời trang: KHÔNG phải giá vốn từng sản phẩm hay từng quốc gia,
-# và không đại diện cho ngành thực phẩm. Chỉ dùng làm kịch bản giả định, không dùng làm sự thật về công ty của bạn.
-# derived=yes: tỷ lệ do chúng tôi tính từ các dòng trên (không phải số in trên trang).
+# Published figures of Zalando SE (fashion e-commerce platform, headquartered in Germany), financial year 2024.
+# Source: consolidated results published on 2025-03-06, read directly on 2026-11-17.
+# These are aggregate figures of ONE fashion company: NOT per-product or per-country cost, and not representative of food retail.
+# Use only as a hypothetical scenario, never as a fact about your own company.
+# derived=yes: ratio computed by us from the rows above (not printed on the page).
 entity,period,metric,value,unit,derived,source_url,retrieved_on
 Zalando SE,2024,revenue,10572.5,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
 Zalando SE,2024,cost_of_sales,6270.5,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17

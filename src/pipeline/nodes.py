@@ -1,4 +1,4 @@
-"""Các bước của pipeline: landing -> bronze -> silver -> gold (+ housekeeping). Mọi bước idempotent."""
+"""Pipeline steps: landing -> bronze -> silver -> gold (+ housekeeping). Every step is idempotent."""
 import hashlib
 import json as _json
 import shutil
@@ -29,7 +29,7 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-# ---------------------------------------------------------------- LANDING (nguồn mô phỏng, tuỳ chọn)
+# ---------------------------------------------------------------- LANDING (simulated source, optional)
 def generate_simulated(ctx: Context) -> Dict:
     if not ctx.simulate_n:
         return {"skipped": "no simulation requested"}
@@ -38,7 +38,7 @@ def generate_simulated(ctx: Context) -> Dict:
     tmp = ctx.layout.landing / f"_sim_{ctx.simulate_n}.csv.tmp"
     df.to_csv(tmp, index=False)
     digest = sha256_file(tmp)[:12]
-    final = ctx.layout.landing / f"simulated_{digest}.csv"     # đặt tên theo nội dung -> không tạo bản trùng
+    final = ctx.layout.landing / f"simulated_{digest}.csv"     # content-addressed name -> never creates a duplicate
     if final.exists():
         tmp.unlink()
         return {"file": final.name, "new": False}
@@ -56,7 +56,7 @@ def _read_header(path: Path) -> List[str]:
 
 
 def iter_raw(path: Path, chunk_rows: int) -> Iterator[pd.DataFrame]:
-    """Đọc theo khối để RAM không phình theo kích thước file."""
+    """Read in chunks so RAM does not grow with file size."""
     if path.suffix.lower() == ".csv":
         yield from pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[""], chunksize=chunk_rows)
     else:
@@ -65,13 +65,13 @@ def iter_raw(path: Path, chunk_rows: int) -> Iterator[pd.DataFrame]:
 
 
 def bronze_ingest(ctx: Context) -> Dict:
-    """Đăng ký file ở landing: hash, phân loại, sao chép bất biến. Trùng hash bị bỏ qua; file quá lớn bị từ chối;
-    file đang ghi dở bị hoãn; mỗi lượt tối đa `max_files_per_run` file mới (phần còn lại để lượt sau)."""
+    """Register files in landing: hash, classify, copy immutably. Same-hash files are skipped; oversized files rejected;
+    files still being written are deferred; at most `max_files_per_run` new files per run (the rest wait for the next run)."""
     L, pol = ctx.layout, ctx.policy
     manifest_path = L.state / "bronze_manifest.json"
     manifest: Dict[str, dict] = read_json(manifest_path, {})
     seen_path = L.state / "landing_seen.json"
-    seen: Dict[str, list] = read_json(seen_path, {})         # tên -> [size, mtime_ns, sha]: khỏi băm lại file cũ
+    seen: Dict[str, list] = read_json(seen_path, {})         # name -> [size, mtime_ns, sha]: avoids re-hashing old files
     new = dup = unclassified = deferred = rejected = 0
 
     for f in sorted(L.landing.iterdir()):
@@ -79,7 +79,7 @@ def bronze_ingest(ctx: Context) -> Dict:
             continue
         st = f.stat()
         age = time.time() - st.st_mtime
-        if age < pol.landing_settle_seconds:                  # có thể đang được ghi: đợi rồi kiểm tra lại
+        if age < pol.landing_settle_seconds:                  # might still be written: wait, then check again
             time.sleep(pol.landing_settle_seconds - age)
             st2 = f.stat()
             if (st2.st_size, st2.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
@@ -110,7 +110,7 @@ def bronze_ingest(ctx: Context) -> Dict:
         try:
             rtype = classify(_read_header(f))
             status = "registered" if rtype else "unclassified"
-        except Exception as exc:                      # file hỏng: ghi nhận, không làm sập pipeline
+        except Exception as exc:                      # corrupt file: record it, do not crash the pipeline
             rtype, status = None, f"unreadable:{type(exc).__name__}"
         dest_dir = L.bronze / (rtype or "_unclassified")
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +143,7 @@ def _norm_part(value: str, kind: str) -> str:
 
 
 def key_strings(df: pd.DataFrame, contract: Contract) -> pd.Series:
-    """Khoá tổng hợp dạng chuỗi (chuẩn hoá số/ngày) để so khớp với tombstone."""
+    """Composite string key (numbers/dates normalised) for matching against tombstones."""
     out = None
     for c in contract.key:
         kind = contract.dtypes.get(c, "str")
@@ -164,7 +164,7 @@ def _row_hash(df: pd.DataFrame, cols: List[str]) -> pd.Series:
 
 
 def _changed_versions(existing: pd.DataFrame, new: pd.DataFrame, key: List[str]) -> pd.DataFrame:
-    """Các dòng cũ có cùng khoá nhưng nội dung khác bản mới (sắp bị ghi đè)."""
+    """Old rows with the same key but different content from the new version (about to be overwritten)."""
     cols = [c for c in existing.columns if c in new.columns and c not in key]
     e = existing[key].assign(_h=_row_hash(existing, cols).values)
     n = new[key].assign(_h=_row_hash(new, cols).values)
@@ -174,7 +174,7 @@ def _changed_versions(existing: pd.DataFrame, new: pd.DataFrame, key: List[str])
 
 
 def _archive_history(L: Layout, rtype: str, old: pd.DataFrame, key: List[str], batch: str, reason: str) -> int:
-    """Lưu phiên bản cũ/dòng bị xoá vào silver/history/<loại>.parquet (khử trùng nên chạy lại không nhân đôi)."""
+    """Store old versions / deleted rows in silver/history/<type>.parquet (deduplicated, so re-runs do not double up)."""
     hdir = L.silver / "history"
     hdir.mkdir(parents=True, exist_ok=True)
     path = hdir / f"{rtype}.parquet"
@@ -193,7 +193,7 @@ def _archive_history(L: Layout, rtype: str, old: pd.DataFrame, key: List[str], b
 
 def _apply_tombstones(current: Optional[pd.DataFrame], rows: pd.DataFrame, contract: Contract,
                       L: Layout, batch: str) -> Tuple[Optional[pd.DataFrame], int, int]:
-    """Xoá khỏi silver các dòng có khoá khớp; bản bị xoá được lưu vào history. Trả (bảng mới, số xoá, số khoá không tìm thấy)."""
+    """Remove rows whose key matches from silver; removed rows are saved to history. Returns (new table, rows deleted, keys not found)."""
     wanted = set()
     for k in rows["record_key"].astype(str):
         parts = k.split("|")
@@ -210,8 +210,8 @@ def _apply_tombstones(current: Optional[pd.DataFrame], rows: pd.DataFrame, contr
 
 
 def silver_build(ctx: Context, rtype: str) -> Dict:
-    """Xử lý tuần tự theo thứ tự nạp: lô dữ liệu (ép kiểu, kiểm tra, khử trùng, upsert, lưu lịch sử) và
-    tombstone (xoá có lưu lịch sử). Idempotent: danh sách đã xử lý chỉ ghi sau khi bảng silver đã ghi xong."""
+    """Process in ingestion order: data batches (coerce types, validate, deduplicate, upsert, keep history) and
+    tombstones (delete, keeping history). Idempotent: the processed list is written only after the silver table is written."""
     L, contract, pol = ctx.layout, CONTRACTS[rtype], ctx.policy
     manifest = read_json(L.state / "bronze_manifest.json", {})
     data_state = L.state / f"silver_{rtype}_processed.json"
@@ -221,7 +221,7 @@ def silver_build(ctx: Context, rtype: str) -> Dict:
     out_path = L.silver / f"{rtype}.parquet"
 
     events = []
-    for h, m in manifest.items():                      # thứ tự chèn của manifest = thứ tự nạp
+    for h, m in manifest.items():                      # manifest insertion order = ingestion order
         if m.get("status") != "registered":
             continue
         if m["record_type"] == rtype and h not in done_data:
@@ -286,15 +286,15 @@ def silver_build(ctx: Context, rtype: str) -> Dict:
 
     if current is not None:
         atomic_write_parquet(current.sort_values(contract.key).reset_index(drop=True), out_path)
-    atomic_write_json(data_state, done_data)           # ghi sau cùng: sập giữa chừng -> lượt sau xử lý lại, kết quả vẫn đúng
+    atomic_write_json(data_state, done_data)           # written last: a crash midway means the next run reprocesses, and the result is still correct
     atomic_write_json(ts_state, done_ts)
     return {**t, "rows_total": 0 if current is None else len(current)}
 
 
-# ---------------------------------------------------------------- HOUSEKEEPING (dọn dẹp, giới hạn dung lượng)
+# ---------------------------------------------------------------- HOUSEKEEPING (cleanup, size limits)
 def housekeeping(ctx: Context) -> Dict:
-    """Xoá bronze đã xử lý xong và quá hạn/vượt ngân sách (manifest vẫn giữ hash nên file cũ nạp lại không bị tính 2 lần),
-    dọn quarantine, cắt history cũ, xoá file mô phỏng đã nạp ở landing."""
+    """Delete bronze files that are processed and past retention / over budget (the manifest keeps the hash, so re-dropping the same file is not counted twice),
+    clean quarantine, trim old history, remove simulated files already ingested from landing."""
     import calendar
     L, pol = ctx.layout, ctx.policy
     manifest_path = L.state / "bronze_manifest.json"
@@ -308,7 +308,7 @@ def housekeeping(ctx: Context) -> Dict:
             return all(h in ts_done[t] for t in DATA_TYPES)
         if rt in data_done:
             return h in data_done[rt]
-        return True                                    # unclassified / unreadable: không có gì để xử lý
+        return True                                    # unclassified / unreadable: nothing to process
 
     def size_of(m: dict) -> int:
         p = L.root / m["bronze_path"] if m.get("bronze_path") else None
@@ -333,7 +333,7 @@ def housekeeping(ctx: Context) -> Dict:
             expire(m, "retention")
     live = [(h, m) for h, m in live if m["status"] != "expired"]
     total = sum(size_of(m) for _, m in live)
-    for h, m in sorted(live, key=lambda x: age_ts(x[1])):          # cũ nhất trước
+    for h, m in sorted(live, key=lambda x: age_ts(x[1])):          # oldest first
         if total <= pol.bronze_max_bytes:
             break
         if processed(h, m):
@@ -359,7 +359,7 @@ def housekeeping(ctx: Context) -> Dict:
             atomic_write_parquet(keep.reset_index(drop=True), p)
 
     landing_removed = 0
-    for f in L.landing.glob("simulated_*.csv"):        # file do chính pipeline sinh, đã có bản trong bronze
+    for f in L.landing.glob("simulated_*.csv"):        # files generated by the pipeline itself; a copy already exists in bronze
         prefix = f.stem.split("_", 1)[1]
         if any(h.startswith(prefix) for h in manifest):
             f.unlink()
@@ -370,12 +370,12 @@ def housekeeping(ctx: Context) -> Dict:
 
 # ---------------------------------------------------------------- GOLD
 def gold_sessions(ctx: Context) -> Dict:
-    """Làm giàu phiên bằng tín hiệu review. Mỗi review khác nhau chỉ được phân tích MỘT lần (cache bền trên đĩa),
-    nên đổi/thêm dữ liệu không phải gọi lại LLM cho review cũ."""
+    """Enrich sessions with review signals. Each distinct review is analysed only ONCE (durable on-disk cache),
+    so changing/adding data never re-calls the LLM for old reviews."""
     from src.ai_extractor import ReviewSignalExtractor
     ext = ReviewSignalExtractor(use_llm=ctx.use_llm)
     import inspect
-    # phiên bản bộ trích xuất = từ khoá + MÃ logic (đổi logic thì cache cũ tự vô hiệu)
+    # extractor version = keywords + logic CODE (changing the logic invalidates the old cache automatically)
     logic = inspect.getsource(ReviewSignalExtractor._analyze_offline)
     mode = "llm:gpt-4o-mini" if ext.use_llm else "offline:" + hashlib.sha256(
         _json.dumps([ext.ISSUE_KEYWORDS, ext.POSITIVE_KEYWORDS, logic], sort_keys=True).encode()).hexdigest()[:10]
@@ -415,8 +415,8 @@ def gold_summaries(ctx: Context) -> Dict:
 
 
 def robust_price_stats(df: pd.DataFrame, k: float = 5.0, min_obs: int = 5) -> pd.DataFrame:
-    """Thống kê giá theo (sản phẩm, quốc gia, tiền tệ) chống dữ liệu cộng đồng bẩn/bị phá hoại: điểm lệch quá k lần
-    độ lệch tuyệt đối trung vị (MAD, có sàn 2% giá trung vị) bị loại khỏi min/median/max và được đếm riêng."""
+    """Price statistics per (product, country, currency), robust against dirty/vandalised crowd data: points further than k times the
+    median absolute deviation (MAD, floored at 2% of the median price) are excluded from min/median/max and counted separately."""
     keys = ["product_code", "country", "currency"]
     d = df.copy()
     d["_med"] = d.groupby(keys)["price"].transform("median")
@@ -446,7 +446,7 @@ def gold_competitor_prices(ctx: Context) -> Dict:
 
 
 def _vat_table(ctx: Context) -> pd.DataFrame:
-    """Bảng VAT tham chiếu. Ưu tiên file người dùng ghi đè ở <data>/reference/vat_rates.csv, nếu không dùng bản đóng gói."""
+    """Reference VAT table. A user override at <data>/reference/vat_rates.csv takes priority, otherwise the packaged file."""
     override = ctx.layout.root / "reference" / "vat_rates.csv"
     path = override if override.exists() else Path(__file__).with_name("reference") / "vat_rates.csv"
     return pd.read_csv(path, comment="#").assign(country=lambda d: d["country"].str.upper())
@@ -462,7 +462,7 @@ def _benchmark_gross_margin(ctx: Context) -> Optional[float]:
 
 
 def _sector_margins() -> Dict[str, float]:
-    """Biên gộp ngành siêu thị/thực phẩm (NACE G47.11) theo quốc gia, nguồn Eurostat (xem src/connectors/eurostat_retail.py)."""
+    """Gross margin of supermarket/food retail (NACE G47.11) per country, source Eurostat (see src/connectors/eurostat_retail.py)."""
     path = Path(__file__).with_name("reference") / "eurostat_retail_margin.csv"
     if not path.exists():
         return {}
@@ -475,13 +475,13 @@ def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFr
                   costs: Optional[pd.DataFrame], home: str = "FR", max_fx_age_days: int = 10,
                   benchmark_gross_margin_pct: Optional[float] = None,
                   sector_gross_margin_pct: Optional[Dict[str, float]] = None) -> pd.DataFrame:
-    """Giá thị trường đã trừ VAT và quy đổi về EUR theo quốc gia, kèm biên lợi nhuận nếu có giá vốn chi nhánh.
-    Giá thị trường (Open Prices) chủ yếu là thực phẩm nên dùng mức VAT thực phẩm giảm (cột reduced_rate_food)."""
+    """Market price net of VAT and converted to EUR per country, plus profit margin when branch cost is available.
+    Market prices (Open Prices) are mostly food, so the reduced food VAT rate is used (column reduced_rate_food)."""
     rate = {"EUR": 1.0}
     if fx is not None and len(fx):
         latest = fx.sort_values("rate_date").groupby("currency").tail(1)
         newest = latest["rate_date"].max()
-        fresh = latest[(newest - latest["rate_date"]) <= pd.Timedelta(days=max_fx_age_days)]   # bỏ tỷ giá cũ (vd. ngừng công bố)
+        fresh = latest[(newest - latest["rate_date"]) <= pd.Timedelta(days=max_fx_age_days)]   # drop stale rates (e.g. no longer published)
         rate.update(dict(zip(fresh["currency"], fresh["eur_per_unit"])))
     vat_rate = dict(zip(vat["country"], vat["reduced_rate_food"] / 100.0))
 
@@ -514,8 +514,8 @@ def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFr
     home_price = d[d["country"] == home].groupby("product_code")["market_net_eur"].median()
     d["vs_home_pct"] = ((d["market_net_eur"] / d["product_code"].map(home_price) - 1) * 100).round(2)
     d["home_country"] = home
-    # KỊCH BẢN (không phải dữ liệu thật): giả định chi nhánh nào cũng mua cùng một giá vốn, và giá vốn đó cho biên gộp bằng
-    # biên công bố của một công ty khác (benchmark) khi bán ở giá thị trường nước nhà. Cho biết biên sẽ đổi thế nào ở nước khác.
+    # SCENARIO (not real data): assume every branch buys at the same unit cost, and that cost gives a gross margin equal to
+    # the published margin of another company (benchmark) when selling at the home-country market price. Shows how margin would change elsewhere.
     if benchmark_gross_margin_pct is not None:
         home_cost = d["product_code"].map(home_price) * (1 - benchmark_gross_margin_pct / 100.0)
         d["scenario_unit_cost_eur"] = home_cost.round(4)
@@ -539,7 +539,7 @@ def gold_market_margin(ctx: Context, home: str = "FR") -> Dict:
     rd = lambda n: pd.read_parquet(L.silver / f"{n}.parquet") if (L.silver / f"{n}.parquet").exists() else None
     fx, costs = rd("fx_rate"), rd("branch_cost")
     sector = _sector_margins()
-    anchor = sector.get(home)                                       # ưu tiên số ngành thực phẩm của nước nhà (Eurostat)
+    anchor = sector.get(home)                                       # prefer the home country's food-sector margin (Eurostat)
     anchor_src = f"eurostat:{home} G4711" if anchor is not None else "zalando:2024"
     if anchor is None:
         anchor = _benchmark_gross_margin(ctx)

@@ -8,9 +8,9 @@ COPY --chown=appuser:appuser src ./src
 COPY --chown=appuser:appuser app ./app
 RUN mkdir -p data && chown appuser:appuser data
 USER appuser
-# Huan luyen mo hinh khi build de container chay ngay
+# Train the model at build time so the container starts ready
 RUN python -m src.train_pipeline
-# Bat buoc truyen API_KEY luc chay: docker run -e API_KEY=... ; thieu thi moi endpoint tra 503 (khong mo cong khai)
+# API_KEY must be passed at run time: docker run -e API_KEY=... ; without it every endpoint answers 503 (never open to the public)
 ENV REQUIRE_API_KEY=1
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"

@@ -39,7 +39,7 @@ class ReviewSignalExtractor:
             hits = sum(1 for kw in keywords if kw in text_lower)
             if hits > 0:
                 neg_hits += hits
-                if hits >= best_hits:          # nhiều từ khoá nhất thắng; hoà thì loại khai báo sau thắng
+                if hits >= best_hits:          # most keyword hits wins; on a tie the category declared later wins
                     detected_category, best_hits = category, hits
 
         pos_hits = sum(1 for kw in self.POSITIVE_KEYWORDS if kw in text_lower)

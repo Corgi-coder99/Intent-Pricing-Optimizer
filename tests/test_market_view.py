@@ -57,8 +57,8 @@ def test_load_market_none_without_gold_and_reads_names_coords_fx(tmp_path):
 
 def test_products_with_home_data_and_more_observations_come_first():
     m = pd.DataFrame([
-        row("A", "DE", 1.0), row("A", "IT", 1.0),                       # không có nước nhà
-        row("B", "FR", 1.0), row("B", "DE", 1.0),                       # có nước nhà, 10 quan sát
-        row("C", "FR", 1.0), row("C", "DE", 1.0), row("C", "IT", 1.0),  # có nước nhà, 15 quan sát
+        row("A", "DE", 1.0), row("A", "IT", 1.0),                       # no home country
+        row("B", "FR", 1.0), row("B", "DE", 1.0),                       # has home country, 10 observations
+        row("C", "FR", 1.0), row("C", "DE", 1.0), row("C", "IT", 1.0),  # has home country, 15 observations
     ])
     assert mv.comparable_products(m) == ["C", "B", "A"]

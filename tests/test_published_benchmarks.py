@@ -30,8 +30,8 @@ def test_scenario_anchors_cost_at_home_and_shows_margin_elsewhere():
     df = pd.DataFrame([comp("FR", 10.0), comp("DE", 12.0)])
     out = market_margin(df, None, VAT, None, home="FR", benchmark_gross_margin_pct=40.0).set_index("country")
     assert out.loc["FR", "scenario_unit_cost_eur"] == pytest.approx(6.0)
-    assert out.loc["FR", "scenario_margin_pct"] == pytest.approx(40.0)                 # nước nhà = đúng biên công bố
-    assert out.loc["DE", "scenario_margin_pct"] == pytest.approx((12 - 6) / 12 * 100)   # 50%: giá cao hơn -> biên cao hơn
+    assert out.loc["FR", "scenario_margin_pct"] == pytest.approx(40.0)                 # home country = exactly the published margin
+    assert out.loc["DE", "scenario_margin_pct"] == pytest.approx((12 - 6) / 12 * 100)   # 50%: higher price -> higher margin
 
 
 def test_no_scenario_without_benchmark_or_home_price():

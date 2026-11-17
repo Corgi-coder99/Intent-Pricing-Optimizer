@@ -27,7 +27,7 @@ def bronze_files(layout):
     return [p for p in layout.bronze.rglob("*") if p.is_file()]
 
 
-# ---------------------------------------------------------------- xoá theo tombstone
+# ---------------------------------------------------------------- tombstone deletes
 def test_tombstone_deletes_rows_keeps_history_and_is_idempotent(layout, sessions):
     sessions.to_csv(layout.landing / "a_data.csv", index=False)
     run(layout)
@@ -56,15 +56,15 @@ def test_tombstone_matches_composite_key_with_number_and_date_normalisation(layo
     assert list(pd.read_parquet(layout.silver / "price_observation.parquet")["product_code"]) == ["2"]
 
 
-# ---------------------------------------------------------------- lưu giữ / dọn bronze
+# ---------------------------------------------------------------- retention / bronze cleanup
 def test_bronze_expired_after_retention_but_not_reingested(layout, sessions):
     sessions.to_csv(layout.landing / "a.csv", index=False)
     r = run(layout, bronze_retention_days=0)
     assert r["results"]["housekeeping"]["bronze_expired"] == 1 and not bronze_files(layout)
-    assert len(pd.read_parquet(layout.silver / "session.parquet")) == 400       # silver còn nguyên
+    assert len(pd.read_parquet(layout.silver / "session.parquet")) == 400       # silver intact
     sessions.to_csv(layout.landing / "same_content_new_name.csv", index=False)
     r2 = run(layout, bronze_retention_days=0)
-    assert r2["results"]["bronze_ingest"]["new_files"] == 0                      # không bị nạp lại
+    assert r2["results"]["bronze_ingest"]["new_files"] == 0                      # not ingested again
     assert any(m["status"] == "expired" for m in read_json(layout.state / "bronze_manifest.json", {}).values())
 
 
@@ -78,7 +78,7 @@ def test_unprocessed_bronze_is_never_expired(layout, sessions):
     sessions.to_csv(layout.landing / "a.csv", index=False)
     from src.pipeline.orchestrator import Node, build_nodes
     g = {k: v for k, v in build_nodes().items() if k in ("generate_simulated", "bronze_ingest", "housekeeping")}
-    g["housekeeping"] = Node("housekeeping", g["housekeeping"].fn, ("bronze_ingest",))   # bỏ silver -> chưa xử lý
+    g["housekeeping"] = Node("housekeeping", g["housekeeping"].fn, ("bronze_ingest",))   # no silver step -> not processed
     run_pipeline(layout, graph=g, isolate=False, policy=Policy(bronze_retention_days=0, bronze_max_bytes=1))
     assert len(bronze_files(layout)) == 1
 
@@ -93,13 +93,13 @@ def test_history_and_quarantine_retention(layout, sessions):
     assert r["results"]["housekeeping"]["history_rows_dropped"] == 4
 
 
-# ---------------------------------------------------------------- chống quá tải
+# ---------------------------------------------------------------- overload protection
 def test_oversized_file_rejected_not_copied(layout, sessions):
     sessions.to_csv(layout.landing / "big.csv", index=False)
     r = run(layout, max_file_bytes=100)
     assert r["ok"] and r["results"]["bronze_ingest"]["rejected_too_large"] == 1
     assert not bronze_files(layout) and not (layout.silver / "session.parquet").exists()
-    assert run(layout, max_file_bytes=100)["results"]["bronze_ingest"]["rejected_too_large"] == 0   # ghi nhận một lần
+    assert run(layout, max_file_bytes=100)["results"]["bronze_ingest"]["rejected_too_large"] == 0   # recorded once
 
 
 def test_max_files_per_run_backpressure(layout, sessions):
@@ -141,7 +141,7 @@ def test_file_being_written_is_deferred_not_registered(layout, sessions):
     r = run(layout, landing_settle_seconds=0.6)["results"]["bronze_ingest"]
     t.join()
     assert r["deferred_files"] == 1 and r["new_files"] == 0
-    r2 = run(layout, landing_settle_seconds=0.6)["results"]["bronze_ingest"]       # ổn định -> nhận
+    r2 = run(layout, landing_settle_seconds=0.6)["results"]["bronze_ingest"]       # stable -> accepted
     assert r2["new_files"] == 1
 
 

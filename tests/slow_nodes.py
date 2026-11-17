@@ -1,4 +1,4 @@
-"""Hàm cấp module (pickle được) để test timeout/crash trong tiến trình con."""
+"""Module-level (picklable) functions to test timeout/crash handling in child processes."""
 import os
 import time
 

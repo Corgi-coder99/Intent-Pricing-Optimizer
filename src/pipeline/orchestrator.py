@@ -1,7 +1,7 @@
-"""Điều phối DAG: kiểm tra vòng lặp trước khi chạy, chạy song song các bước độc lập,
-mỗi bước chạy tối đa một lần mỗi lượt, bước lỗi/quá hạn làm bỏ qua các bước phụ thuộc (không tự thử lại).
+"""DAG orchestration: detects cycles before running, runs independent steps in parallel,
+each step runs at most once per run, a failed/timed-out step causes its dependents to be skipped (no automatic retry).
 
-Mỗi bước chạy trong một tiến trình con (spawn) để timeout là kill thật, không để lại luồng chạy ngầm.
+Each step runs in a child process (spawn) so a timeout is a real kill and no thread is left running in the background.
 """
 import multiprocessing as mp
 import shutil
@@ -37,17 +37,17 @@ class Node:
     name: str
     fn: Callable[[Context], Dict]
     deps: Tuple[str, ...] = ()
-    inputs: Optional[Callable[[Layout], List[Path]]] = None    # nếu có: bỏ qua khi đầu vào không đổi
+    inputs: Optional[Callable[[Layout], List[Path]]] = None    # if set: skipped when the inputs have not changed
     outputs: Optional[Callable[[Layout], List[Path]]] = None
-    timeout: float = 300.0                                     # giây; chỉ được cưỡng chế khi isolate=True
+    timeout: float = 300.0                                     # seconds; only enforced when isolate=True
 
 
 def build_nodes(use_llm: bool = False) -> Dict[str, Node]:
     from src import ai_extractor as _extractor_module
     EXTRACTOR_SRC = Path(_extractor_module.__file__)
-    S = lambda L: [L.silver / "session.parquet", EXTRACTOR_SRC]     # đổi mã bộ trích xuất -> gold tính lại
+    S = lambda L: [L.silver / "session.parquet", EXTRACTOR_SRC]     # changing the extractor code -> gold is recomputed
     G = lambda L: [L.gold / "sessions_features.parquet"]
-    # Số đo thật trên 50k dòng: mọi bước < 2s. Timeout đặt ~50-100x để bắt bước treo mà không giết bước chậm hợp lệ.
+    # Measured on 50k rows: every step < 2s. Timeouts are set ~50-100x higher to catch hung steps without killing legitimately slow ones.
     ns = [
         Node("generate_simulated", nodes.generate_simulated, timeout=120),
         Node("bronze_ingest", nodes.bronze_ingest, ("generate_simulated",), timeout=120),
@@ -70,17 +70,17 @@ def build_nodes(use_llm: bool = False) -> Dict[str, Node]:
 
 
 def topological_levels(graph: Dict[str, Node]) -> List[List[str]]:
-    """Kahn: trả các tầng chạy song song được; ném CycleError nếu có vòng hoặc phụ thuộc không tồn tại."""
+    """Kahn: returns the levels that can run in parallel; raises CycleError on a cycle or a missing dependency."""
     for n in graph.values():
         for d in n.deps:
             if d not in graph:
-                raise CycleError(f"{n.name} phụ thuộc bước không tồn tại: {d}")
+                raise CycleError(f"{n.name} depends on a step that does not exist: {d}")
     indeg = {k: len(v.deps) for k, v in graph.items()}
     done, levels = set(), []
     while len(done) < len(graph):
         level = sorted(k for k, d in indeg.items() if d == 0 and k not in done)
         if not level:
-            raise CycleError("Phát hiện vòng phụ thuộc: " + ", ".join(sorted(set(graph) - done)))
+            raise CycleError("Dependency cycle detected: " + ", ".join(sorted(set(graph) - done)))
         levels.append(level)
         done.update(level)
         for k, v in graph.items():
@@ -92,14 +92,14 @@ def topological_levels(graph: Dict[str, Node]) -> List[List[str]]:
 def _child(fn, ctx, conn) -> None:
     try:
         conn.send(("ok", fn(ctx)))
-    except BaseException as exc:                      # noqa: BLE001 - báo lỗi về tiến trình cha
+    except BaseException as exc:                      # noqa: BLE001 - report the error back to the parent process
         conn.send(("err", f"{type(exc).__name__}: {exc}"))
     finally:
         conn.close()
 
 
 def run_isolated(node: Node, ctx: Context) -> Dict:
-    """Chạy một bước trong tiến trình con; quá timeout thì kill. Ghi file nguyên tử nên kill không làm hỏng dữ liệu."""
+    """Run a step in a child process; kill it on timeout. Writes are atomic so a kill cannot corrupt data."""
     spawn = mp.get_context("spawn")
     parent, child = spawn.Pipe(duplex=False)
     proc = spawn.Process(target=_child, args=(node.fn, ctx, child), daemon=True)
@@ -131,13 +131,13 @@ def run_isolated(node: Node, ctx: Context) -> Dict:
 def run_pipeline(layout: Layout, simulate_n: Optional[int] = None, use_llm: bool = False,
                  workers: int = 3, wait_lock: float = 0.0, graph: Optional[Dict[str, Node]] = None,
                  isolate: Optional[bool] = None, policy: Policy = DEFAULT_POLICY) -> Dict:
-    """isolate=None: bật cho đồ thị mặc định (timeout có hiệu lực), tắt cho đồ thị tuỳ biến dùng lambda (không pickle được)."""
+    """isolate=None: on for the default graph (timeouts enforced), off for custom graphs using lambdas (not picklable)."""
     isolate = (graph is None) if isolate is None else isolate
     graph = graph or build_nodes(use_llm)
-    topological_levels(graph)               # fail sớm nếu có vòng lặp, trước khi đụng tới dữ liệu
+    topological_levels(graph)               # fail early on a cycle, before touching any data
     layout.ensure()
     free = shutil.disk_usage(layout.root).free
-    if free < policy.min_free_bytes:                # cầu dao: đĩa gần đầy thì không chạy để tránh làm hỏng dữ liệu
+    if free < policy.min_free_bytes:                # circuit breaker: refuse to run on a nearly full disk to avoid corrupting data
         raise InsufficientResources(f"Only {free // 2**20} MiB free; need {policy.min_free_bytes // 2**20} MiB")
     ctx = Context(layout=layout, simulate_n=simulate_n, use_llm=use_llm, policy=policy)
     fp_path = layout.state / "fingerprints.json"
@@ -181,14 +181,14 @@ def run_pipeline(layout: Layout, simulate_n: Optional[int] = None, use_llm: bool
                 if not futures:
                     break
                 finished, _ = wait(list(futures), timeout=HEARTBEAT_SECONDS, return_when=FIRST_COMPLETED)
-                lock.heartbeat()            # còn sống -> giữ khoá, kể cả khi một bước chạy lâu
+                lock.heartbeat()            # still alive -> keep the lock, even while a step runs for a long time
                 for fut in finished:
                     name = futures.pop(fut)
                     try:
                         res = fut.result()
                         status[name] = "unchanged" if "__skipped__" in res else "ok"
                         results[name] = res
-                    except Exception as exc:        # lỗi/timeout một bước không làm sập cả lượt chạy
+                    except Exception as exc:        # an error/timeout in one step does not crash the whole run
                         status[name] = "failed"
                         results[name] = {"error": f"{type(exc).__name__}: {exc}"}
                         if isinstance(exc, NodeTimeout):

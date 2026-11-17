@@ -1,7 +1,7 @@
-"""Tài khoản API riêng cho từng người dùng/máy: mỗi khoá có tên và vai trò, chỉ lưu băm SHA-256 (không lưu khoá gốc).
+"""Per-user API accounts: each key has a name and a role; only the SHA-256 hash is stored (never the key itself).
 
-Khoá là chuỗi ngẫu nhiên 256 bit nên SHA-256 là đủ (không cần băm chậm như mật khẩu do con người đặt).
-CLI:  python -m src.auth create --name alice --role user      (khoá chỉ hiện MỘT lần)
+Keys are random 256-bit strings, so plain SHA-256 is enough (no slow hash needed, unlike human-chosen passwords).
+CLI:  python -m src.auth create --name alice --role user      (the key is shown only ONCE)
       python -m src.auth list | python -m src.auth disable --id <key_id>
 """
 import argparse
@@ -40,7 +40,7 @@ def _load(path: Path) -> Dict[str, dict]:
 
 def has_keys(path: Optional[Path] = None) -> bool:
     path = path or KEY_FILE
-    return bool(_load(path))        # kho khoá đã từng có khoá (kể cả bị vô hiệu) thì KHÔNG bao giờ quay về chế độ mở
+    return bool(_load(path))        # once the store has ever held a key (even disabled ones) it NEVER falls back to open mode
 
 
 def create_key(name: str, role: str = "user", path: Optional[Path] = None) -> str:
@@ -65,7 +65,7 @@ def authenticate(token: str, path: Optional[Path] = None) -> Optional[Principal]
     path = path or KEY_FILE
     key_id, _, secret = (token or "").partition(".")
     rec = _load(path).get(key_id)
-    # luôn băm để thời gian xử lý không lộ việc key_id có tồn tại hay không
+    # always hash, so timing does not reveal whether the key_id exists
     candidate = _hash(secret)
     expected = rec["hash"] if rec else _hash("x")
     if rec and not rec.get("disabled") and hmac.compare_digest(candidate, expected):

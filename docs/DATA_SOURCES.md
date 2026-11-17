@@ -1,40 +1,38 @@
-# Nguồn dữ liệu và mức độ tin cậy
+# Data sources and how far to trust them
 
-| Dữ liệu | Nguồn | Trạng thái |
+| Data | Source | Status |
 |---|---|---|
-| Giá bán lẻ theo cửa hàng, quốc gia (8 nước EU/UK) | Open Prices (Open Food Facts), giấy phép ODbL, tải qua API | Thật, do cộng đồng đóng góp, chưa đảm bảo độ đúng. Tải dở (hết trần yêu cầu), Bỉ chưa đủ |
-| Tỷ giá EUR/GBP... | ECB (data-api.ecb.europa.eu), đọc trực tiếp 2026-11-17 | Thật. 1 GBP = 1,2004 EUR |
-| Cơ cấu chi phí của một sàn TMĐT | Zalando SE, báo cáo kết quả hợp nhất năm 2024 (https://corporate.zalando.com/en/node/10738), đọc trực tiếp 2026-11-17 | Thật, đã kiểm chứng ở nguồn gốc |
-| Biên gộp ngành bán lẻ theo nước (7 nước EU + Anh) | Eurostat, bộ `sbs_na_dt_r2`, chỉ số V12110 và V12130, lấy qua API chính thức ngày 2026-11-17 (`src/connectors/eurostat_retail.py`) | Thật, số của CẢ NGÀNH theo nước, năm 2019 (Anh: 2018). Biên gộp % do mã tính |
-| VAT theo nước | `src/pipeline/reference/vat_rates.csv` | **Chưa kiểm chứng** (ghi từ trí nhớ, cần đối chiếu nguồn chính thức) |
-| Giá vốn từng chi nhánh | Chưa có (dữ liệu nội bộ công ty, không công khai) | Thiếu |
+| Retail shelf prices by store and country (8 EU/UK countries) | Open Prices (Open Food Facts), ODbL licence, via API | Real, community-contributed, no accuracy guarantee. The last download stopped early (request cap); Belgium is incomplete |
+| Exchange rates EUR/GBP... | ECB (data-api.ecb.europa.eu), read live on 2026-11-17 | Real. 1 GBP = 1.2004 EUR |
+| Cost structure of one e-commerce platform | Zalando SE, consolidated results 2024 (https://corporate.zalando.com/en/node/10738), read live on 2026-11-17 | Real, verified at the primary source |
+| Retail gross margin by country (7 EU countries + UK) | Eurostat, dataset `sbs_na_dt_r2`, indicators V12110 and V12130, fetched via the official API on 2026-11-17 (`src/connectors/eurostat_retail.py`) | Real, SECTOR-wide figures per country, year 2019 (UK: 2018). Margin % computed in code |
+| VAT by country | `src/pipeline/reference/vat_rates.csv` | **Not verified** (entered from memory; check against an official source) |
+| Branch unit costs | None (internal company data, not public) | Missing |
 
-## Biên gộp ngành bán lẻ theo nước (Eurostat), nhóm siêu thị/thực phẩm G47.11, doanh thu chưa gồm VAT
-Pháp 21,02% · Đức 23,41% · Tây Ban Nha 23,94% · Ý 22,67% · Hà Lan 27,33% · Bỉ 37,74% · Ireland 34,68% · Anh 31,81% (năm 2018).
-- Là biên gộp của cả ngành ở mỗi nước (doanh thu trừ chi phí mua hàng bán lại), **không phải** giá vốn của công ty hay sản phẩm nào.
-- Năm 2020 bị loại (đại dịch làm lệch); Anh chỉ có đến 2018 vì Eurostat ngừng thu thập sau Brexit, nên Anh khác năm với các nước còn lại.
-- Số liệu của một số nước dao động mạnh giữa các năm (ví dụ Ireland nhóm bán lẻ chung: 20,3% năm 2018, 37,0% năm 2019), nên đừng
-  đọc chênh lệch nhỏ giữa các nước như khác biệt thật.
-- Dùng làm điểm neo của kịch bản (cột `scenario_anchor`) và làm mốc so sánh (cột `sector_gross_margin_pct`).
+## Retail gross margin by country (Eurostat), supermarket/food group G47.11, turnover excluding VAT
+France 21.02% · Germany 23.41% · Spain 23.94% · Italy 22.67% · Netherlands 27.33% · Belgium 37.74% · Ireland 34.68% · UK 31.81% (2018).
+- These are sector-wide gross margins per country (turnover minus purchases of goods for resale), **not** the cost of any company or product.
+- 2020 is excluded (the pandemic distorts it); the UK only goes up to 2018 because Eurostat stopped collecting it after Brexit, so the UK is a different year.
+- Some countries swing strongly between years (e.g. Ireland, all retail: 20.3% in 2018, 37.0% in 2019); do not read small gaps between countries as real differences.
+- Used as the anchor of the scenario (`scenario_anchor` column) and as a benchmark (`sector_gross_margin_pct` column).
 
-## Số của Zalando dùng thế nào, và không dùng được vào đâu
-Năm 2024 (triệu EUR): doanh thu 10.572,5; giá vốn 6.270,5; lợi nhuận gộp 4.302,0; chi phí fulfilment 2.418,4; chi phí marketing 979,2.
-Tỷ lệ tính từ các số đó: biên gộp 40,69%; fulfilment 22,87%; marketing 9,26%; còn lại sau hai khoản chi phí khoảng 8,55% doanh thu.
+## How the Zalando figures are used, and what they cannot do
+2024 (EUR million): revenue 10,572.5; cost of sales 6,270.5; gross profit 4,302.0; fulfilment costs 2,418.4; marketing costs 979.2.
+Ratios computed from these: gross margin 40.69%; fulfilment 22.87%; marketing 9.26%; about 8.55% of revenue left after both costs.
 
-- Đây là số tổng hợp của MỘT công ty thời trang. Nó **không** cho biết giá vốn từng sản phẩm, từng nước, và không đại diện cho
-  thực phẩm (nhóm hàng chính của dữ liệu giá thị trường).
-- Số Zalando chỉ là phương án dự phòng cho điểm neo khi thiếu số Eurostat của nước nhà.
-- **Kịch bản giả định** (`scenario_margin_pct` trong bảng `market_margin`): giả sử mọi chi nhánh mua cùng một giá vốn và giá vốn
-  đó cho biên bằng biên ngành của nước nhà (Pháp 21,02% theo Eurostat, ghi ở cột `scenario_anchor`) khi bán ở giá thị trường Pháp,
-  thì biên sẽ là bao nhiêu nếu bán ở giá thị trường nước khác. Kết quả là biên **giả định**, không phải lợi nhuận thật của công ty nào.
-- Khi có giá vốn thật (`branch_cost`), cột `margin_at_market_pct` và `own_margin_pct` dùng số thật và thay thế kịch bản.
+- These are aggregates of ONE fashion company. They do **not** give per-product or per-country cost, and do not represent food retail.
+- The Zalando figures are only a fallback anchor when the home country's Eurostat figure is missing.
+- **Hypothetical scenario** (`scenario_margin_pct` in the `market_margin` table): assume every branch buys at the same unit cost, and that
+  this cost gives a margin equal to the home country's sector margin (France 21.02% from Eurostat, shown in `scenario_anchor`) when selling at the
+  French market price; then what would the margin be when selling at another country's market price? The result is a **hypothetical** margin, not any company's real profit.
+- With real branch costs (`branch_cost`), the `margin_at_market_pct` and `own_margin_pct` columns use real numbers and replace the scenario.
 
-## Đã tìm nhưng KHÔNG dùng
-- **Amazon, phân khúc International (kết quả 2025):** các con số chỉ lấy được từ trang tổng hợp bên thứ ba; trang gốc thông cáo
-  trả lỗi 403 khi đọc nên chưa kiểm chứng. Không đưa vào dữ liệu.
-- **Phí bán hàng của Amazon ở châu Âu:** không lấy được bảng phí chính thức (chỉ có bài đăng diễn đàn người bán và blog bên thứ ba,
-  chủ yếu cho thị trường Mỹ). Không đưa vào dữ liệu. Muốn dùng, hãy lấy bảng phí từ Seller Central của từng nước.
-- Số liệu của một công ty bán trên sàn: chưa tìm thấy nguồn công khai đáng tin có giá vốn theo sản phẩm hoặc theo nước.
+## Searched but NOT used
+- **Amazon, International segment (2025 results):** only available from third-party aggregator pages; the primary press release
+  returned HTTP 403, so it is unverified. Not put into the data.
+- **Amazon selling fees in Europe:** no official fee table could be retrieved (only seller-forum posts and third-party blogs,
+  mostly for the US marketplace). Not put into the data. To use them, take the fee schedule from each country's Seller Central.
+- Real per-product or per-country cost data of a company selling on platforms: no trustworthy public source found.
 
-## Ghi nguồn khi công bố
-"Contains information from Open Food Facts contributors, available under the ODbL." Số Zalando: Zalando SE, báo cáo 2024. Số ngành: Eurostat (sbs_na_dt_r2).
+## Attribution when publishing
+"Contains information from Open Food Facts contributors, available under the ODbL." Zalando figures: Zalando SE, 2024 report. Sector figures: Eurostat (sbs_na_dt_r2).

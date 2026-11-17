@@ -9,7 +9,7 @@ def synthetic_panel(true_eps=-1.5, n_products=60, n_weeks=45, seed=0, price_nois
     rng = np.random.default_rng(seed)
     rows = []
     weeks = pd.date_range("2010-01-04", periods=n_weeks, freq="W-MON")
-    season = rng.normal(0, 0.3, n_weeks)                       # cú sốc nhu cầu chung theo tuần
+    season = rng.normal(0, 0.3, n_weeks)                       # common demand shock per week
     for i in range(n_products):
         base_p, base_q = rng.uniform(1, 20), rng.uniform(50, 500)
         for t, w in enumerate(weeks):
@@ -31,7 +31,7 @@ def test_recovers_inelastic_demand_too():
 
 
 def test_week_fixed_effects_remove_common_demand_shocks():
-    # giá và cầu cùng tăng theo mùa (cú sốc chung) sẽ làm lệch kết quả nếu không có hiệu ứng tuần
+    # price and demand rising together with the season (common shock) would bias the result without week effects
     rng = np.random.default_rng(1)
     df = synthetic_panel(true_eps=-1.0, seed=1)
     season = df.groupby("week").ngroup().map(dict(enumerate(rng.normal(0, 0.5, df["week"].nunique()))))
@@ -43,9 +43,9 @@ def test_week_fixed_effects_remove_common_demand_shocks():
 
 def test_quality_gate_drops_thin_flat_priced_and_noisy_products():
     good = synthetic_panel(n_products=3)
-    flat = good[good["product"] == "P0"].assign(product="FLAT", price=2.0)               # giá không đổi
-    thin = good[good["product"] == "P1"].head(10).assign(product="THIN")                 # ít tuần
-    one_inv = good[good["product"] == "P2"].assign(product="ONEINV", invoices=1)         # mỗi tuần 1 hoá đơn
+    flat = good[good["product"] == "P0"].assign(product="FLAT", price=2.0)               # constant price
+    thin = good[good["product"] == "P1"].head(10).assign(product="THIN")                 # few weeks
+    one_inv = good[good["product"] == "P2"].assign(product="ONEINV", invoices=1)         # one invoice per week
     out = re_.quality_gate(pd.concat([good, flat, thin, one_inv]))
     assert set(out["product"]) == {"P0", "P1", "P2"}
 

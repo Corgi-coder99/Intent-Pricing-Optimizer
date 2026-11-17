@@ -1,12 +1,12 @@
-"""Ước lượng độ co giãn của cầu theo giá từ giao dịch THẬT (Online Retail II, UCI, CC BY 4.0) để kiểm tra các giả định
-của bộ mô phỏng trước khi dùng vào mô hình.
+"""Estimate the price elasticity of demand from REAL transactions (Online Retail II, UCI, CC BY 4.0) to check the assumptions
+of the simulator before it is used in the model.
 
-Dữ liệu: sản phẩm x tuần (số lượng, giá bình quân gia quyền theo số lượng) từ bảng `clean_lines` của dự án
-online-retail-insights (chỉ đọc). Phương pháp: log q = a_i + g_t + e * log p + u với hiệu ứng cố định theo sản phẩm (a_i) và tuần (g_t),
-ước lượng bằng Frisch-Waugh (khử trung bình luân phiên); khoảng tin cậy 95% bằng bootstrap theo sản phẩm.
+Data: product x week (units, quantity-weighted average price) from the `clean_lines` table of the online-retail-insights
+project (read-only). Method: log q = a_i + g_t + e * log p + u with product (a_i) and week (g_t) fixed effects,
+estimated by Frisch-Waugh (alternating demeaning); 95% confidence interval by bootstrap over products.
 
-GIỚI HẠN (quan trọng): giá thay đổi không ngẫu nhiên (khuyến mãi trùng với mùa/nhu cầu, giá bán sỉ theo bậc số lượng) nên
-đây là độ co giãn QUAN SÁT được, không phải nhân quả; hãy đọc như một khoảng hợp lý, không phải con số chính xác.
+LIMITS (important): prices do not change randomly (promotions coincide with season/demand, wholesale tiered pricing) so
+this is an OBSERVED elasticity, not a causal one; read it as a plausible range, not an exact figure.
 """
 import json
 import os
@@ -23,7 +23,7 @@ EU_OTHER = ("Austria", "Belgium", "Cyprus", "Czech Republic", "Denmark", "EIRE",
 
 
 def load_weekly(db_path: Path = DEFAULT_DB, group: str = "all") -> pd.DataFrame:
-    """Sản phẩm x tuần. group: all | uk | eu (các nước EU ngoài Anh). Mở cơ sở dữ liệu ở chế độ CHỈ ĐỌC."""
+    """Product x week. group: all | uk | eu (EU countries other than the UK). Opens the database READ-ONLY."""
     import duckdb
     where = {"all": "1=1", "uk": "country = 'United Kingdom'",
              "eu": "country IN (" + ",".join(f"'{c}'" for c in EU_OTHER) + ")"}[group]
@@ -42,10 +42,10 @@ def load_weekly(db_path: Path = DEFAULT_DB, group: str = "all") -> pd.DataFrame:
 
 def quality_gate(df: pd.DataFrame, min_weeks: int = 30, min_price_cv: float = 0.05, min_distinct_prices: int = 3,
                  min_invoices: int = 2) -> pd.DataFrame:
-    """Chỉ giữ sản phẩm đủ quan sát và CÓ biến động giá (không có biến động thì không ước lượng được độ co giãn)."""
-    d = df[df["invoices"] >= min_invoices].copy()                          # tuần chỉ có 1 hoá đơn: quá nhiễu
+    """Keep only products with enough observations AND price variation (without variation the elasticity cannot be estimated)."""
+    d = df[df["invoices"] >= min_invoices].copy()                          # weeks with a single invoice: too noisy
     med = d.groupby("product")["price"].transform("median")
-    d = d[(d["price"] >= 0.2 * med) & (d["price"] <= 5.0 * med)]            # loại giá nhập sai (cực đoan so với trung vị)
+    d = d[(d["price"] >= 0.2 * med) & (d["price"] <= 5.0 * med)]            # drop mistyped prices (extreme relative to the median)
     g = d.groupby("product")["price"]
     stats = pd.DataFrame({"weeks": g.size(), "cv": g.std() / g.mean(), "distinct": g.nunique()})
     keep = stats[(stats["weeks"] >= min_weeks) & (stats["cv"] >= min_price_cv) & (stats["distinct"] >= min_distinct_prices)].index
@@ -62,7 +62,7 @@ def _demean_two_way(v: np.ndarray, prod: np.ndarray, week: np.ndarray, iters: in
 
 
 def estimate_elasticity(df: pd.DataFrame, n_boot: int = 300, seed: int = 42) -> Dict[str, object]:
-    """Độ co giãn chung (hiệu ứng cố định sản phẩm + tuần), khoảng tin cậy 95% bootstrap theo sản phẩm, và trung vị theo từng sản phẩm."""
+    """Pooled elasticity (product + week fixed effects), 95% bootstrap CI over products, and the per-product median."""
     if df.empty:
         raise ValueError("No data after quality gate")
     prod = pd.factorize(df["product"])[0]
@@ -71,7 +71,7 @@ def estimate_elasticity(df: pd.DataFrame, n_boot: int = 300, seed: int = 42) -> 
     yt, xt = _demean_two_way(y, prod, week), _demean_two_way(x, prod, week)
     eps = float((xt * yt).sum() / (xt * xt).sum())
 
-    # bootstrap theo sản phẩm trên phần dư đã khử hiệu ứng (xấp xỉ, chấp nhận được cho khoảng tin cậy)
+    # bootstrap over products on the demeaned residuals (an approximation, acceptable for the confidence interval)
     n_p = prod.max() + 1
     num = np.bincount(prod, weights=xt * yt, minlength=n_p)
     den = np.bincount(prod, weights=xt * xt, minlength=n_p)
@@ -97,18 +97,18 @@ def estimate_elasticity(df: pd.DataFrame, n_boot: int = 300, seed: int = 42) -> 
 
 
 def simulator_implied_elasticity(contexts: Optional[Dict[str, dict]] = None) -> Dict[str, float]:
-    """Độ co giãn của XÁC SUẤT CHUYỂN ĐỔI theo giá mà mô hình đã huấn luyện (dữ liệu mô phỏng) ngụ ý quanh giá gốc."""
+    """Elasticity of CONVERSION PROBABILITY to price implied by the trained model (simulated data) around the base price."""
     from src.ml_pricing_model import DynamicPricingModel
     m = DynamicPricingModel()
     m.load()
     base = {"base_price": 100.0, "competitor_price": 100.0, "session_views": 4.0, "cart_additions_7d": 25.0}
-    contexts = contexts or {"khong_phan_nan(sentiment 0.95)": {"ai_sentiment_score": 0.95, "pain_point_severity": 0.05},
-                            "trung_binh(sentiment 0.5)": {"ai_sentiment_score": 0.5, "pain_point_severity": 0.5},
-                            "nhieu_phan_nan(sentiment 0.1)": {"ai_sentiment_score": 0.1, "pain_point_severity": 0.9}}
+    contexts = contexts or {"no_complaints (sentiment 0.95)": {"ai_sentiment_score": 0.95, "pain_point_severity": 0.05},
+                            "average (sentiment 0.5)": {"ai_sentiment_score": 0.5, "pain_point_severity": 0.5},
+                            "many_complaints (sentiment 0.1)": {"ai_sentiment_score": 0.1, "pain_point_severity": 0.9}}
     out = {}
     for name, ctx in contexts.items():
         curve = m.simulate_price_curve({**base, **ctx})
-        near = curve.iloc[5:10]                                  # quanh giá gốc (-8% .. +1%)
+        near = curve.iloc[5:10]                                  # around the base price (-8% .. +1%)
         lp, lc = np.log(near["offered_price"].to_numpy()), np.log(near["conversion_prob"].to_numpy())
         out[name] = round(float(np.polyfit(lp, lc, 1)[0]), 3)
     return out
@@ -116,7 +116,7 @@ def simulator_implied_elasticity(contexts: Optional[Dict[str, dict]] = None) -> 
 
 def main(argv: Optional[list] = None) -> int:
     if not DEFAULT_DB.exists():
-        print(f"ERROR: warehouse not found: {DEFAULT_DB} (đặt biến môi trường ONLINE_RETAIL_DB)", file=sys.stderr)
+        print(f"ERROR: warehouse not found: {DEFAULT_DB} (set the ONLINE_RETAIL_DB environment variable)", file=sys.stderr)
         return 2
     report: Dict[str, object] = {"source": "Online Retail II (UCI, CC BY 4.0), qua online-retail-insights/clean_lines"}
     for group in ("all", "uk", "eu"):

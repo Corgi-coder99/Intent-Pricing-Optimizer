@@ -1,5 +1,5 @@
 [server]
-# Chỉ lắng nghe trên máy này; mặc định của Streamlit là mọi giao diện mạng (không có xác thực).
+# Listen on this machine only; Streamlit's default is every network interface (and this dashboard has no authentication).
 address = "127.0.0.1"
 headless = true
 

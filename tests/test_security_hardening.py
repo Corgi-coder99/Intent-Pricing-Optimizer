@@ -36,10 +36,10 @@ def isolated(tmp_path, monkeypatch):
 BODY = {"base_price": 100, "competitor_price": 100, "ai_sentiment_score": 0.6}
 
 
-# ---------------------------------------------------------------- mô hình: không còn pickle
+# ---------------------------------------------------------------- model: no more pickle
 def test_model_saved_in_native_text_format_not_pickle():
     head = MODEL_ARTIFACT_PATH.read_bytes()[:64]
-    assert MODEL_ARTIFACT_PATH.suffix == ".txt" and head.startswith(b"tree")      # văn bản LightGBM, không phải pickle
+    assert MODEL_ARTIFACT_PATH.suffix == ".txt" and head.startswith(b"tree")      # LightGBM text, not pickle
     assert not (b"\x80\x04" in head or b"cposix" in head)
 
 
@@ -53,12 +53,12 @@ def test_same_model_file_gives_identical_predictions():
     assert a.version == b.version != "none"
 
 
-# ---------------------------------------------------------------- tài khoản riêng
+# ---------------------------------------------------------------- per-user accounts
 def test_per_user_keys_roles_and_no_plaintext_storage(client, isolated):
     alice = auth.create_key("alice", "user")
     boss = auth.create_key("boss", "admin")
     stored = (isolated / "keys.json").read_text()
-    assert alice.split(".")[1] not in stored and boss.split(".")[1] not in stored      # chỉ lưu băm
+    assert alice.split(".")[1] not in stored and boss.split(".")[1] not in stored      # only the hash is stored
     assert client.post("/v1/price/recommend", json=BODY, headers={"X-API-Key": alice}).status_code == 200
     assert client.post("/v1/admin/reload", headers={"X-API-Key": alice}).status_code == 403
     assert client.post("/v1/admin/reload", headers={"X-API-Key": boss}).status_code == 200
@@ -70,10 +70,10 @@ def test_two_users_get_identical_results_and_independent_rate_limits(client, mon
     a, b = auth.create_key("a"), auth.create_key("b")
     monkeypatch.setattr(api, "USER_RATE_LIMIT_PER_MIN", 2)
     ra = [client.post("/v1/price/recommend", json=BODY, headers={"X-API-Key": a}) for _ in range(3)]
-    assert [r.status_code for r in ra] == [200, 200, 429]                     # a bị giới hạn...
+    assert [r.status_code for r in ra] == [200, 200, 429]                     # a is rate-limited...
     rb = client.post("/v1/price/recommend", json=BODY, headers={"X-API-Key": b})
-    assert rb.status_code == 200                                              # ...b vẫn dùng bình thường
-    assert rb.json()["decision"] == ra[0].json()["decision"]                  # cùng đầu vào + cùng mô hình = cùng kết quả
+    assert rb.status_code == 200                                              # ...b can still work normally
+    assert rb.json()["decision"] == ra[0].json()["decision"]                  # same input + same model = same result
     assert rb.json()["model_version"] == ra[0].json()["model_version"]
 
 
@@ -109,15 +109,15 @@ def test_forwarded_for_ignored_unless_proxy_trusted(client, monkeypatch):
     monkeypatch.setattr(api, "RATE_LIMIT_PER_MIN", 2)
     spoof = lambda ip: {"X-Forwarded-For": ip}
     codes = [client.get("/health", headers=spoof(f"10.0.0.{i}")).status_code for i in range(4)]
-    assert codes == [200, 200, 429, 429]                                        # giả mạo header không né được giới hạn
+    assert codes == [200, 200, 429, 429]                                        # spoofing the header does not evade the limit
     api.reset_limits()
     monkeypatch.setenv("TRUST_PROXY", "1")
     codes = [client.get("/health", headers=spoof(f"10.0.0.{i}")).status_code for i in range(4)]
-    assert codes == [200] * 4                                                   # proxy tin cậy: mỗi IP thật một hạn mức
-    assert client.get("/health", headers=spoof("not-an-ip")).status_code == 200  # chuỗi lạ bị bỏ qua, không gây lỗi
+    assert codes == [200] * 4                                                   # trusted proxy: each real IP gets its own quota
+    assert client.get("/health", headers=spoof("not-an-ip")).status_code == 200  # odd strings are ignored, no error
 
 
-# ---------------------------------------------------------------- dữ liệu bẩn
+# ---------------------------------------------------------------- dirty data
 def test_poisoned_prices_are_excluded_from_market_stats():
     rows = [{"product_code": "1", "country": "FR", "currency": "EUR", "store": f"S{i}", "price": 2.0 + (i % 3) * 0.1,
              "observed_at": "2026-01-01"} for i in range(8)]

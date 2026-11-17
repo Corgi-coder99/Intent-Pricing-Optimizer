@@ -5,7 +5,7 @@ from src.connectors import openprices as op
 
 
 def fetch_factory(n_locations, calls, valid_rows=False):
-    """Mọi địa điểm đều trả dữ liệu KHÔNG hợp lệ (hoặc rất ít): kịch bản từng làm connector chạy hàng giờ."""
+    """Every location returns INVALID (or very little) data: the scenario that once made the connector run for hours."""
     def fetch(url):
         calls.append(url)
         u = urllib.parse.urlsplit(url)

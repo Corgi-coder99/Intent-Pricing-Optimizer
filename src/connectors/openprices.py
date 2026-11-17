@@ -1,18 +1,18 @@
-"""Connector Open Prices (Open Food Facts) -> file CSV ở landing/, để pipeline bronze->silver->gold xử lý.
+"""Open Prices (Open Food Facts) connector -> CSV file in landing/, processed by the bronze->silver->gold pipeline.
 
-Nguồn: https://prices.openfoodfacts.org  |  Giấy phép dữ liệu: ODbL (phải ghi nguồn "Open Food Facts contributors").
+Source: https://prices.openfoodfacts.org  |  Data licence: ODbL (credit "Open Food Facts contributors").
 
-Coi phản hồi từ internet là KHÔNG TIN CẬY. Các lớp bảo vệ:
-  * Chỉ HTTPS tới đúng một host trong allowlist (kiểm tra bằng urlparse, chống mẹo userinfo/subdomain giả).
-  * Kiểm tra chứng chỉ TLS (ngữ cảnh mặc định); KHÔNG theo chuyển hướng; không bao giờ tải URL nằm trong dữ liệu trả về
-    (chống SSRF; không tải ảnh/biên lai).
-  * Giới hạn: timeout, dung lượng mỗi phản hồi, số trang, số bản ghi, nhịp gọi 1 request/giây, thử lại có giới hạn.
-  * Chỉ JSON; chỉ giữ các trường trong danh sách cho phép. Bỏ `owner`, `owner_comment`, `proof`, URL ảnh... (dữ liệu
-    định danh người đóng góp không bao giờ được lưu).
-  * Kiểm tra từng giá trị (mã sản phẩm, giá, tiền tệ, ngày, toạ độ, quốc gia) và làm sạch văn bản: bỏ ký tự điều khiển,
-    chặn chèn công thức CSV (=, +, -, @), thay '|' để khoá tombstone không bị nhập nhằng.
-  * Không gửi thông tin cá nhân: User-Agent chung, không cookie, không token. Ghi file bằng tmp + rename.
-  * Dữ liệu tải về không bao giờ được thực thi hay `eval`; chỉ qua json.loads và các hợp đồng dữ liệu của pipeline.
+Responses from the internet are treated as UNTRUSTED. Protections:
+    * HTTPS only, to a single allow-listed host (checked with urlparse; defeats userinfo/fake-subdomain tricks).
+    * TLS certificate verification (default context); redirects are NOT followed; URLs found inside the returned data are never fetched
+        (anti-SSRF; no images/receipts downloaded).
+    * Limits: timeout, response size, page count, record count, 1 request/second, bounded retries.
+    * JSON only; only allow-listed fields are kept. `owner`, `owner_comment`, `proof`, image URLs... are dropped (contributor
+        identity is never stored).
+    * Every value is validated (product code, price, currency, date, coordinates, country) and text is sanitised: control
+        characters removed, CSV formula injection blocked (=, +, -, @), '|' replaced so tombstone keys stay unambiguous.
+    * No personal information is sent: generic User-Agent, no cookies, no tokens. Files are written via tmp + rename.
+    * Downloaded data is never executed or `eval`ed; it only goes through json.loads and the pipeline's data contracts.
 """
 import argparse
 import hashlib
@@ -38,7 +38,7 @@ LOCATIONS_PATH = "/api/v1/locations"
 ALLOWED_PATHS = (API_PATH, LOCATIONS_PATH)
 USER_AGENT = "portfolio-research-client/1.0"
 ALLOWED_CURRENCIES = ("GBP", "EUR", "SEK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN")
-# EU27 + Vương quốc Anh: chỉ các nước này được phép làm bộ lọc quốc gia
+# EU27 + United Kingdom: only these countries are accepted as a country filter
 ALLOWED_COUNTRIES = frozenset("AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE GB".split())
 DEFAULT_COUNTRIES = ("GB", "FR", "DE", "IE")
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
@@ -64,7 +64,7 @@ class HTTPStatusError(ConnectorError):
         self.code = code
 
 
-# ------------------------------------------------------------------ mạng
+# ------------------------------------------------------------------ network
 def validate_url(url: str) -> str:
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or u.hostname != ALLOWED_HOST or u.username or u.password or u.port not in (None, 443):
@@ -99,8 +99,8 @@ def build_location_prices_url(location_id: int, page: int, size: int = PAGE_SIZE
 
 
 def tls_context() -> ssl.SSLContext:
-    """Ngữ cảnh TLS LUÔN xác minh chứng chỉ và tên máy chủ. Dùng bộ chứng chỉ gốc certifi nếu có, vì kho chứng chỉ của
-    Windows có thể thiếu chứng chỉ trung gian (lỗi CERTIFICATE_VERIFY_FAILED). Không bao giờ tắt xác minh."""
+    """    TLS context that ALWAYS verifies certificate and hostname. Uses the certifi root bundle when available, because the
+        Windows certificate store can lack an intermediate certificate (CERTIFICATE_VERIFY_FAILED). Never disable verification."""
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
@@ -152,7 +152,7 @@ def fetch_json(url: str, fetch: Callable[[str], bytes], sleep: Callable[[float],
             sleep(2.0 ** attempt)
             last = exc
             continue
-        except ValueError as exc:                           # JSON hỏng: không thử lại
+        except ValueError as exc:                           # corrupt JSON: do not retry
             raise ConnectorError(f"Invalid JSON: {exc}")
         if not isinstance(data, dict) or not isinstance(data.get("items"), list):
             raise ConnectorError("Unexpected response shape")
@@ -160,7 +160,7 @@ def fetch_json(url: str, fetch: Callable[[str], bytes], sleep: Callable[[float],
     raise ConnectorError(f"Giving up after {MAX_RETRIES} attempts: {type(last).__name__}")
 
 
-# ------------------------------------------------------------------ làm sạch & kiểm tra giá trị
+# ------------------------------------------------------------------ sanitising & value checks
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -173,7 +173,7 @@ def sanitize_text(value, max_len: int = 200) -> Optional[str]:
     if not text:
         return None
     if text.startswith(_FORMULA_START):
-        text = "'" + text                                   # chặn CSV/Excel formula injection
+        text = "'" + text                                   # block CSV/Excel formula injection
     return text
 
 
@@ -185,7 +185,7 @@ def _number(value, lo: float, hi: float) -> Optional[float]:
 
 
 def parse_item(item: dict, countries: Iterable[str] = DEFAULT_COUNTRIES) -> Optional[Dict]:
-    """Một bản ghi API -> dòng sạch theo danh sách trường cho phép; None nếu không hợp lệ/không thuộc phạm vi."""
+    """One API record -> clean row with allow-listed fields; None if invalid or out of scope."""
     if not isinstance(item, dict) or item.get("duplicate_of") is not None:
         return None
     loc = item.get("location") if isinstance(item.get("location"), dict) else {}
@@ -235,7 +235,7 @@ class RequestBudgetExceeded(ConnectorError):
 
 
 class _Throttle:
-    """Nhịp gọi tối thiểu giữa hai request, kèm trần TỔNG số request (chống chạy vô hạn khi dữ liệu không đạt hạn mức)."""
+    """Minimum gap between requests, plus a hard cap on the TOTAL number of requests (prevents runaway scans when data never meets the quota)."""
 
     def __init__(self, sleep: Callable[[float], None], max_requests: int = 10 ** 9):
         self.sleep, self.last, self.count, self.max_requests = sleep, 0.0, 0, max_requests
@@ -250,12 +250,12 @@ class _Throttle:
         self.last = time.monotonic()
 
 
-# ------------------------------------------------------------------ tải dữ liệu
+# ------------------------------------------------------------------ fetching data
 def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable[str] = DEFAULT_COUNTRIES,
                  max_records: int = 5000, max_pages: int = 60,
                  fetch: Callable[[str], bytes] = http_get,
                  sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
-    """max_records: tổng số bản ghi giữ lại; max_pages: số trang quét tối đa MỖI tiền tệ (API không lọc được theo quốc gia)."""
+    """max_records: total rows kept; max_pages: max pages scanned PER currency (the API cannot filter by country)."""
     countries = tuple(c.upper() for c in countries)
     rows: List[Dict] = []
     last_call = 0.0
@@ -268,7 +268,7 @@ def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable
             try:
                 data = fetch_json(build_url(currency, page), fetch, sleep)
             except HTTPStatusError as exc:
-                if exc.code == 404 and page > 1:       # API trả 404 khi vượt trang cuối: hết dữ liệu
+                if exc.code == 404 and page > 1:       # the API returns 404 past the last page: no more data
                     break
                 raise
             items = data["items"]
@@ -293,8 +293,8 @@ def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_c
                              sleep: Callable[[float], None] = time.sleep,
                              log: Callable[[str], None] = lambda m: None, max_requests: int = 600,
                              max_locations_per_country: int = 60) -> pd.DataFrame:
-    """Vì API không lọc được theo quốc gia: (1) quét danh sách địa điểm và lọc quốc gia ở phía client,
-    (2) tải giá theo từng location_id với hạn mức mỗi quốc gia và mỗi địa điểm (để một cửa hàng không áp đảo)."""
+    """Because the API cannot filter by country: (1) scan the location list and filter countries client-side,
+    (2) fetch prices per location_id with a quota per country and per location (so one store cannot dominate)."""
     countries = tuple(c.upper() for c in countries)
     bad = [c for c in countries if c not in ALLOWED_COUNTRIES]
     if bad:
@@ -320,7 +320,7 @@ def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_c
     rows: List[Dict] = []
     try:
         _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_location_max, max_locations_per_country, log)
-    except ConnectorError as exc:                   # hết ngân sách yêu cầu hoặc lỗi mạng kéo dài: giữ phần đã có
+    except ConnectorError as exc:                   # request budget exhausted or persistent network error: keep what was collected
         log(f"STOPPED EARLY: {exc}; keeping {len(rows)} rows already collected")
         partial = True
     else:
@@ -361,7 +361,7 @@ def _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_locat
 
 
 def write_to_landing(df: pd.DataFrame, landing: Path) -> Optional[Path]:
-    """Ghi CSV vào landing: tmp + rename, tên theo nội dung (tải lại cùng dữ liệu không tạo file trùng)."""
+    """Write the CSV into landing: tmp + rename, content-addressed name (re-downloading the same data creates no duplicate file)."""
     if df.empty:
         return None
     landing.mkdir(parents=True, exist_ok=True)
