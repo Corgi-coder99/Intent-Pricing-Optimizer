@@ -17,7 +17,8 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 
-DEFAULT_DB = Path(os.getenv("ONLINE_RETAIL_DB", r"D:\Dev\online-retail-insights\data\warehouse.duckdb"))
+# Set ONLINE_RETAIL_DB to the warehouse of the online-retail-insights project; by default look for it next to this repository.
+DEFAULT_DB = Path(os.getenv("ONLINE_RETAIL_DB") or (Path(__file__).resolve().parent.parent.parent / "online-retail-insights" / "data" / "warehouse.duckdb"))
 EU_OTHER = ("Austria", "Belgium", "Cyprus", "Czech Republic", "Denmark", "EIRE", "Finland", "France", "Germany", "Greece",
             "Italy", "Lithuania", "Malta", "Netherlands", "Poland", "Portugal", "Spain", "Sweden")
 
@@ -116,7 +117,7 @@ def simulator_implied_elasticity(contexts: Optional[Dict[str, dict]] = None) -> 
 
 def main(argv: Optional[list] = None) -> int:
     if not DEFAULT_DB.exists():
-        print(f"ERROR: warehouse not found: {DEFAULT_DB} (set the ONLINE_RETAIL_DB environment variable)", file=sys.stderr)
+        print(f"ERROR: warehouse not found: {DEFAULT_DB} (set the ONLINE_RETAIL_DB environment variable to the path of warehouse.duckdb)", file=sys.stderr)
         return 2
     report: Dict[str, object] = {"source": "Online Retail II (UCI, CC BY 4.0), qua online-retail-insights/clean_lines"}
     for group in ("all", "uk", "eu"):

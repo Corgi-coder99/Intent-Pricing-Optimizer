@@ -24,12 +24,15 @@ graph LR
 
 ## Quickstart
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate            # Windows (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt -c constraints.txt
 python -m src.train_pipeline                 # simulate data -> bronze/silver/gold -> train the model
-python -m pytest -q tests                    # 160+ tests
+python -m pytest -q tests                    # 190+ tests
 python -m streamlit run app/Dashboard.py # dashboard (English/French switch in the sidebar)
 python -m uvicorn src.api:app --host 127.0.0.1 --port 8000   # REST API, docs at /docs
 ```
+Tested with Python 3.14 on Windows 11 (the exact package versions are in `constraints.txt`). Run the dashboard and the API in two separate terminals.
 The dashboard listens on `127.0.0.1` only (`.streamlit/config.toml`); open `http://127.0.0.1:8501`.
 Streamlit's default is every network interface and this dashboard has no authentication, so keep that setting.
 

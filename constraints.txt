@@ -1,0 +1,18 @@
+# Exact versions that passed the full test suite (Python 3.14 on Windows 11). Use as: pip install -r requirements.txt -c constraints.txt
+pandas==3.0.6
+numpy==2.5.3
+scikit-learn==1.9.1
+lightgbm==4.7.0
+pyarrow==26.0.1
+streamlit==1.67.0
+plotly==7.1.0
+python-dotenv==1.2.4
+fastapi==0.163.1
+uvicorn==0.54.0
+httpx==0.28.1
+certifi==2026.7.22
+pytest==9.2.0
+pydantic==2.14.3
+starlette==1.10.0
+scipy==1.18.1
+joblib==1.6.0
