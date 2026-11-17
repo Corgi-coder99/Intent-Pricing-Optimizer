@@ -13,7 +13,7 @@ from src import market_view
 from src.agent_decision import money, number
 from src.i18n import streamlit_lang, t
 
-st.set_page_config(page_title="EU/UK country comparison", page_icon="🌍", layout="wide")
+st.set_page_config(page_title=t("cc_page_title", st.session_state.get("lang", "en")), page_icon="🌍", layout="wide")
 lang = streamlit_lang()
 
 NAVY, BLUE, ORANGE, RED, GREEN = "#1f3a5f", "#2f7fc1", "#f39c12", "#d64545", "#2e9e6b"
@@ -106,7 +106,9 @@ else:
         if len(mp):
             fig = px.scatter_geo(mp, lat="lat", lon="lon", size=mp["n_products"].clip(lower=1) * 6, color="median_vs_home_pct",
                                  hover_name="country", color_continuous_scale="RdYlGn_r", color_continuous_midpoint=0,
-                                 hover_data={"lat": False, "lon": False, "n_products": True, "median_vs_home_pct": ":.1f"})
+                                 hover_data={"lat": False, "lon": False, "n_products": True, "median_vs_home_pct": ":.1f"},
+                                 labels={"country": t("cc_country", lang), "n_products": t("cc_n_products", lang),
+                                         "median_vs_home_pct": t("cc_median_gap", lang)})
             fig.update_geos(scope="europe", showcountries=True, countrycolor="#c9d1dc", showland=True, landcolor="#f4f6f9",
                             showocean=True, oceancolor="#e8f1fa", lataxis_range=[34, 60], lonaxis_range=[-12, 20])
             fig.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title="% vs " + home))

@@ -1,0 +1,3 @@
+# Optional features (not needed for the quickstart or the tests)
+openai>=1.12.0      # LLM mode: use_llm=True in the review extractor and the agent
+duckdb>=1.0.0       # python -m src.real_elasticity (reads the online-retail-insights warehouse)

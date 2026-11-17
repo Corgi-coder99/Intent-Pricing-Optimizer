@@ -3,3 +3,8 @@ __pycache__/
 .env
 .pytest_cache/
 *.pkl
+.venv/
+venv/
+*.log
+*.egg-info/
+.DS_Store

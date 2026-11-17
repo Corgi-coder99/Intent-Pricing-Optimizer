@@ -60,6 +60,11 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "col_pain": {"en": "Avg pain", "fr": "Friction moyenne"},
     "col_revenue": {"en": "Revenue (€)", "fr": "Chiffre d'affaires (€)"},
     # ---- country comparison page
+    "page_title": {"en": "Intent-Driven Pricing BI", "fr": "BI prix pilotés par l'intention"},
+    "cc_page_title": {"en": "EU/UK country comparison", "fr": "Comparaison des pays UE/Royaume-Uni"},
+    "cc_n_products": {"en": "Products", "fr": "Produits"},
+    "cc_median_gap": {"en": "Median gap (%)", "fr": "Écart médian (%)"},
+    "cc_country": {"en": "Country", "fr": "Pays"},
     "cc_title": {"en": "Price and margin comparison across EU/UK countries", "fr": "Comparaison des prix et des marges entre pays UE/Royaume-Uni"},
     "cc_caption": {"en": "Real market prices (Open Prices), net of VAT and converted to EUR. Margins are a HYPOTHETICAL SCENARIO, not any company's real profit.",
                    "fr": "Prix de marché réels (Open Prices), hors TVA et convertis en EUR. Les marges sont un SCÉNARIO HYPOTHÉTIQUE, pas le bénéfice réel d'une entreprise."},

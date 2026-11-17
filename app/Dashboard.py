@@ -21,7 +21,7 @@ from src.ml_pricing_model import DynamicPricingModel
 from src.rag_engine import ReviewRAGEngine
 from src.train_pipeline import run_full_pipeline
 
-st.set_page_config(page_title="Intent-Driven Pricing BI", page_icon="📈", layout="wide")
+st.set_page_config(page_title=t("page_title", st.session_state.get("lang", "en")), page_icon="📈", layout="wide")
 lang = streamlit_lang()
 
 NAVY, BLUE, ORANGE, RED, GREEN, GREY = "#1f3a5f", "#2f7fc1", "#f39c12", "#d64545", "#2e9e6b", "#8a96a8"
@@ -194,10 +194,12 @@ with m1:
     st.markdown(f"<div class='ptitle'>{t('map_title', lang)}</div>", unsafe_allow_html=True)
     fig = px.scatter_geo(reg_df, lat="lat", lon="lon", size="revenue", color="conversion_rate", hover_name="region",
                          hover_data={"lat": False, "lon": False, "revenue": ":,.0f", "conversion_rate": ":.1%", "avg_sentiment": ":.2f"},
+                         labels={"region": t("region", lang), "revenue": t("col_revenue", lang), "conversion_rate": t("col_conversion", lang),
+                                 "avg_sentiment": t("col_sentiment", lang)},
                          color_continuous_scale="RdYlGn", size_max=38)
     fig.update_geos(scope="europe", lataxis_range=[41, 52], lonaxis_range=[-5.5, 9.5], showcountries=True,
                     countrycolor="#c9d1dc", showland=True, landcolor="#f4f6f9", showocean=True, oceancolor="#e8f1fa", resolution=50)
-    fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title="Conv."))
+    fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title=t("col_conversion", lang)))
     show(fig)
 with m2:
     st.markdown(f"<div class='ptitle'>{t('region_chart', lang)}</div>", unsafe_allow_html=True)
