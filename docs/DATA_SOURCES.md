@@ -23,9 +23,10 @@ Tỷ lệ tính từ các số đó: biên gộp 40,69%; fulfilment 22,87%; mark
 
 - Đây là số tổng hợp của MỘT công ty thời trang. Nó **không** cho biết giá vốn từng sản phẩm, từng nước, và không đại diện cho
   thực phẩm (nhóm hàng chính của dữ liệu giá thị trường).
-- Số Zalando giờ chỉ là phương án dự phòng cho điểm neo khi thiếu số Eurostat. Cách dùng trong dự án là **kịch bản giả định** (`scenario_margin_pct` trong bảng `market_margin`): giả sử mọi chi nhánh
-  mua cùng một giá vốn và giá vốn đó cho biên 40,69% khi bán ở giá thị trường Pháp, thì biên sẽ là bao nhiêu nếu bán ở giá thị
-  trường nước khác. Kết quả là biên **giả định**, không phải lợi nhuận thật của công ty nào.
+- Số Zalando chỉ là phương án dự phòng cho điểm neo khi thiếu số Eurostat của nước nhà.
+- **Kịch bản giả định** (`scenario_margin_pct` trong bảng `market_margin`): giả sử mọi chi nhánh mua cùng một giá vốn và giá vốn
+  đó cho biên bằng biên ngành của nước nhà (Pháp 21,02% theo Eurostat, ghi ở cột `scenario_anchor`) khi bán ở giá thị trường Pháp,
+  thì biên sẽ là bao nhiêu nếu bán ở giá thị trường nước khác. Kết quả là biên **giả định**, không phải lợi nhuận thật của công ty nào.
 - Khi có giá vốn thật (`branch_cost`), cột `margin_at_market_pct` và `own_margin_pct` dùng số thật và thay thế kịch bản.
 
 ## Đã tìm nhưng KHÔNG dùng
