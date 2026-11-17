@@ -21,6 +21,7 @@ class Contract:
     dtypes: Dict[str, str]                      # str | float | int | datetime
     checks: List[Check] = field(default_factory=list)
     normalize: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None
+    strict_columns: bool = False        # True: cột ngoài hợp đồng bị loại ngay, không vào silver
 
 
 def _ok(s: pd.Series) -> pd.Series:
@@ -103,6 +104,7 @@ CONTRACTS: Dict[str, Contract] = {
             ("bad_currency", lambda d: _ok(d.currency.str.fullmatch(r"[A-Za-z]{3}"))),
         ],
         normalize=lambda df: df.assign(currency=df["currency"].str.upper(), country=df["country"].str.upper()),
+        strict_columns=True,
     ),
     # Tombstone: yêu cầu xoá. record_key = các cột khoá của loại đó nối bằng "|" (số: định dạng %g, ngày: YYYY-MM-DD)
     "tombstone": Contract(
@@ -144,6 +146,11 @@ def clean(raw: pd.DataFrame, contract: Contract) -> Tuple[pd.DataFrame, pd.DataF
     df = raw.copy()
     df.columns = [norm_col(c) for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated()]
+    dropped_cols = 0
+    if contract.strict_columns:
+        allowed = set(contract.dtypes) | set(contract.required) | set(contract.key)
+        dropped_cols = int((~df.columns.isin(allowed)).sum())
+        df = df.loc[:, df.columns.isin(allowed)]
 
     for col, kind in contract.dtypes.items():
         if col not in df.columns:
@@ -173,5 +180,6 @@ def clean(raw: pd.DataFrame, contract: Contract) -> Tuple[pd.DataFrame, pd.DataF
 
     before = len(good)
     good = good.drop_duplicates(subset=contract.key, keep="last")
-    metrics = {"rows_in": len(df), "rejected": len(rejected), "duplicates_in_batch": before - len(good), "rows_good": len(good)}
+    metrics = {"rows_in": len(df), "rejected": len(rejected), "duplicates_in_batch": before - len(good), "rows_good": len(good),
+               "dropped_columns": dropped_cols}
     return good.reset_index(drop=True), rejected.reset_index(drop=True), metrics
