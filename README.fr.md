@@ -1,9 +1,9 @@
-# Optimiseur de prix dynamique et de conversion piloté par l'intention
+# Optimiseur dynamique de prix et de conversion piloté par l'intention
 
 [English](README.md)
 
-Un projet de bout en bout **IA + Data Science + E-commerce** : les signaux issus des avis clients (NLP/RAG) alimentent un modèle d'élasticité-prix
-(LightGBM), qui alimente un agent de prix recommandant un prix et une stratégie. Le projet comprend un tableau de bord BI bilingue (anglais/français),
+Un projet de bout en bout **IA + Data Science + E-commerce** : les signaux issus des avis clients (NLP/RAG) nourrissent un modèle d'élasticité-prix
+(LightGBM), qui pilote un agent de prix recommandant un prix et une stratégie. Le projet comprend un tableau de bord BI bilingue (anglais/français),
 une API REST, un pipeline de données bronze/silver/gold et des données de marché réelles UE/Royaume-Uni (prix, taux de change, marges sectorielles).
 
 > **État réel :** le modèle de conversion est entraîné sur des sessions **simulées**. Sa sensibilité globale au prix a été comparée à de vraies
@@ -19,7 +19,7 @@ python -m streamlit run app/streamlit_app.py # tableau de bord (sélecteur Engli
 python -m uvicorn src.api:app --host 127.0.0.1 --port 8000   # API REST, documentation sur /docs
 ```
 Le tableau de bord n'écoute que sur `127.0.0.1` (`.streamlit/config.toml`) ; ouvrez `http://127.0.0.1:8501`.
-Par défaut, Streamlit écoute sur toutes les interfaces réseau et ce tableau de bord n'a pas d'authentification : conservez ce réglage.
+Par défaut, Streamlit écoute sur toutes les interfaces réseau et ce tableau de bord n'a pas d'authentification : ne modifiez pas ce réglage.
 
 ## Données réelles UE/Royaume-Uni (facultatif)
 ```bash

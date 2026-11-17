@@ -1,6 +1,7 @@
 from typing import Dict, List
 import pandas as pd
 from src.config import OPENAI_API_KEY
+from src.i18n import fr_typography
 
 STRATEGIES = {
     "defensive": "Defensive Conversion Recovery",
@@ -8,9 +9,9 @@ STRATEGIES = {
     "hold": "Equilibrium Hold & Targeted Intervention",
 }
 STRATEGY_LABELS_FR = {
-    "defensive": "Reconquête défensive de la conversion",
-    "markup": "Expansion de marge (hausse dynamique)",
-    "hold": "Maintien d'équilibre et action ciblée",
+    "defensive": "Redressement défensif de la conversion",
+    "markup": "Hausse de marge (majoration dynamique)",
+    "hold": "Maintien de l'équilibre et action ciblée",
 }
 COMPLAINT_LABELS_FR = {
     "price_value": "rapport qualité-prix",
@@ -72,27 +73,29 @@ class PricingDecisionAgent:
                 "en": (f"Customer sentiment for {product_name} is pressured ({sent}/1.0) due to [{complaint_summary}]. "
                        f"Recommend a targeted {disc}% discount to {p_new} (from {p_old}), lifting predicted conversion to "
                        f"{conv}% and maximizing expected revenue at {rev} per 100 visits."),
-                "fr": (f"Le sentiment client pour {product_name} est sous pression ({sent}/1,0) en raison de [{complaint_summary}]. "
-                       f"Nous recommandons une remise ciblée de {disc} % à {p_new} (au lieu de {p_old}), ce qui porte la conversion "
-                       f"prévue à {conv} % et maximise le chiffre d'affaires attendu à {rev} pour 100 visites."),
+                "fr": (f"Le sentiment client pour {product_name} est dégradé ({sent}/1,0) en raison de : {complaint_summary}. "
+                       f"Nous recommandons une remise ciblée de {disc} %, soit {p_new} au lieu de {p_old}. La conversion "
+                       f"prévue passe à {conv} %, pour un chiffre d'affaires attendu maximal de {rev} pour 100 visites."),
             }[lang]
         elif optimal_discount < -2.0:
             key = "markup"
             rationale = {
                 "en": (f"Healthy sentiment ({sent}/1.0) and low price sensitivity support a {disc}% price increase to "
                        f"{p_new}, expanding gross margin while maintaining strong conversion ({conv}%)."),
-                "fr": (f"Un sentiment sain ({sent}/1,0) et une faible sensibilité au prix justifient une hausse de {disc} % à "
-                       f"{p_new}, ce qui élargit la marge brute tout en maintenant une forte conversion ({conv} %)."),
+                "fr": (f"Un sentiment sain ({sent}/1,0) et une faible sensibilité au prix justifient une hausse de {disc} % (à "
+                       f"{p_new}), qui élargit la marge brute tout en maintenant une forte conversion ({conv} %)."),
             }[lang]
         else:
             key = "hold"
             rationale = {
                 "en": (f"Optimal revenue point sits near base price ({p_new}). Instead of broad margin cuts, deploy an "
                        f"exit-intent assistant addressing '{complaint_summary}'."),
-                "fr": (f"Le point de chiffre d'affaires optimal se situe près du prix de base ({p_new}). Plutôt que de larges "
-                       f"baisses de marge, déployez un assistant d'intention de sortie traitant : « {complaint_summary} »."),
+                "fr": (f"Le chiffre d'affaires est optimal près du prix de base ({p_new}). Plutôt que de larges "
+                       f"baisses de marge, nous recommandons un assistant déclenché à l'intention de sortie, qui traite : « {complaint_summary} »."),
             }[lang]
 
+        if lang == "fr":
+            rationale = fr_typography(rationale)
         summary_text = rationale
         if self.use_llm:
             summary_text = self._polish_with_llm(

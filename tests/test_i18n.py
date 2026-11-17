@@ -42,7 +42,7 @@ def curve(best_discount, best_price=100.0):
                          "conversion_prob": [0.5, 0.4], "expected_revenue_per_100_visits": [5000.0, 3600.0]})
 
 
-@pytest.mark.parametrize("lang,expect", [("en", "Defensive Conversion Recovery"), ("fr", "Reconquête défensive")])
+@pytest.mark.parametrize("lang,expect", [("en", "Defensive Conversion Recovery"), ("fr", "Redressement défensif")])
 def test_agent_speaks_the_requested_language_with_euro_prices(lang, expect):
     d = PricingDecisionAgent().recommend_action("Headphones", 125.0, curve(20.0), ["price_value"], 0.3, lang=lang)
     assert d["strategy_name"] == "Defensive Conversion Recovery"            # stable identifier in every language
@@ -50,6 +50,7 @@ def test_agent_speaks_the_requested_language_with_euro_prices(lang, expect):
     assert "€" in d["recommended_price"] and "$" not in d["executive_summary"]
     if lang == "fr":
         assert "remise" in d["executive_summary"] and "rapport qualité-prix" in d["executive_summary"]
+        assert "\u00a0%" in d["executive_summary"] and " %" not in d["executive_summary"]   # non-breaking space before %
     else:
         assert "discount" in d["executive_summary"]
 
@@ -70,3 +71,9 @@ def test_api_accepts_lang_and_rejects_unknown(tmp_path, monkeypatch):
         fr = c.post("/v1/price/recommend", json={**body, "lang": "fr"})
         assert fr.status_code == 200 and "€" in fr.json()["decision"]["recommended_price"]
         assert c.post("/v1/price/recommend", json={**body, "lang": "xx"}).status_code == 422
+
+
+def test_french_typography_uses_non_breaking_spaces():
+    assert i18n.fr_typography("Sources : « x » 5 %") == "Sources\u00a0: «\u00a0x\u00a0» 5\u00a0%"
+    assert i18n.t("cc_note_5", "fr").startswith("Sources\u00a0:")
+    assert i18n.t("cc_note_5", "en").startswith("Sources: ")                    # English untouched

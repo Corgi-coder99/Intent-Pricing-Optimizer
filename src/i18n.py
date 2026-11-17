@@ -36,7 +36,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "conv_pct": {"en": "Conversion (%)", "fr": "Conversion (%)"},
     "revenue_eur": {"en": "Revenue (€)", "fr": "Chiffre d'affaires (€)"},
     "vs_competitors": {"en": "Price vs competitors", "fr": "Prix face aux concurrents"},
-    "our_price": {"en": "Recommended (ours)", "fr": "Recommandé (nous)"},
+    "our_price": {"en": "Recommended (ours)", "fr": "Notre prix recommandé"},
     "price_axis": {"en": "Price (€)", "fr": "Prix (€)"},
     "map_title": {"en": "Revenue & conversion by region (map)", "fr": "Chiffre d'affaires et conversion par région (carte)"},
     "region_chart": {"en": "Conversion & sentiment by region", "fr": "Conversion et sentiment par région"},
@@ -61,18 +61,18 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "cc_caption": {"en": "Real market prices (Open Prices), net of VAT and converted to EUR. Margins are a HYPOTHETICAL SCENARIO, not any company's real profit.",
                    "fr": "Prix de marché réels (Open Prices), hors TVA et convertis en EUR. Les marges sont un SCÉNARIO HYPOTHÉTIQUE, pas le bénéfice réel d'une entreprise."},
     "cc_no_data": {"en": "The comparison table has not been built yet. Run the pipeline from the project folder:",
-                   "fr": "Le tableau de comparaison n'a pas encore été construit. Lancez le pipeline depuis le dossier du projet :"},
+                   "fr": "Le tableau de comparaison n'a pas encore été généré. Lancez le pipeline depuis le dossier du projet :"},
     "cc_reliable": {"en": "Reliable data only", "fr": "Données fiables uniquement"},
-    "cc_reliable_help": {"en": "Keep rows with ≥2 stores and ≥3 observations", "fr": "Conserver les lignes avec ≥2 magasins et ≥3 observations"},
+    "cc_reliable_help": {"en": "Keep rows with ≥2 stores and ≥3 observations", "fr": "Garder les lignes avec au moins 2 magasins et 3 observations"},
     "cc_countries": {"en": "Countries compared with {home}", "fr": "Pays comparés à {home}"},
     "cc_kpi_products": {"en": "Comparable products (≥2 countries)", "fr": "Produits comparables (≥2 pays)"},
     "cc_kpi_countries": {"en": "Countries with data", "fr": "Pays avec données"},
     "cc_kpi_reliable": {"en": "Reliable rows", "fr": "Lignes fiables"},
     "cc_kpi_fx": {"en": "1 GBP = EUR (ECB {date})", "fr": "1 GBP = EUR (BCE {date})"},
     "cc_kpi_fx_none": {"en": "GBP rate", "fr": "Taux GBP"},
-    "cc_none": {"en": "none yet", "fr": "indisponible"},
+    "cc_none": {"en": "none yet", "fr": "pas encore disponible"},
     "cc_empty": {"en": "No product qualifies under the current filters. Untick 'Reliable data only' or add countries.",
-                 "fr": "Aucun produit ne satisfait les filtres actuels. Décochez « Données fiables uniquement » ou ajoutez des pays."},
+                 "fr": "Aucun produit ne correspond aux filtres actuels. Décochez « Données fiables uniquement » ou ajoutez des pays."},
     "cc_gap_title": {"en": "Median price gap vs {home} (%) — n = comparable products", "fr": "Écart de prix médian vs {home} (%) — n = produits comparables"},
     "cc_gap_axis": {"en": "% vs {home}", "fr": "% vs {home}"},
     "cc_margin_title": {"en": "Median scenario margin vs real sector margin by country (Eurostat)",
@@ -87,8 +87,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "cc_generic_product": {"en": "Product", "fr": "Produit"},
     "cc_net_price": {"en": "Net price (EUR)", "fr": "Prix hors TVA (EUR)"},
     "cc_col_country": {"en": "Country", "fr": "Pays"},
-    "cc_col_scenario": {"en": "Scenario margin %", "fr": "Marge scénario %"},
-    "cc_col_sector": {"en": "Sector margin %", "fr": "Marge sectorielle %"},
+    "cc_col_scenario": {"en": "Scenario margin %", "fr": "Marge de scénario (%)"},
+    "cc_col_sector": {"en": "Sector margin %", "fr": "Marge sectorielle (%)"},
     "cc_col_obs": {"en": "Observations", "fr": "Observations"},
     "cc_col_stores": {"en": "Stores", "fr": "Magasins"},
     "cc_col_conf": {"en": "Reliability", "fr": "Fiabilité"},
@@ -98,20 +98,33 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "cc_note_2": {"en": "**Sector margin (Eurostat)** is the gross margin of the whole supermarket/food retail sector per country, 2019 (UK: 2018), not any company's cost.",
                   "fr": "La **marge sectorielle (Eurostat)** est la marge brute de l'ensemble du commerce de détail alimentaire par pays, 2019 (Royaume-Uni : 2018), pas le coût d'une entreprise."},
     "cc_note_3": {"en": "**Price data** is crowd-sourced (Open Prices), mostly food, with no accuracy guarantee; few products appear in several countries.",
-                  "fr": "Les **données de prix** sont collaboratives (Open Prices), surtout alimentaires, sans garantie d'exactitude ; peu de produits apparaissent dans plusieurs pays."},
+                  "fr": "Les **données de prix** sont participatives (Open Prices), surtout alimentaires, sans garantie d'exactitude ; peu de produits apparaissent dans plusieurs pays."},
     "cc_note_4": {"en": "**The VAT table is unverified**; exchange rates come from the ECB. With real branch costs, a real-margin column replaces the scenario.",
-                  "fr": "**Le tableau de TVA n'est pas vérifié** ; les taux de change proviennent de la BCE. Avec les coûts réels des filiales, une colonne de marge réelle remplacera le scénario."},
+                  "fr": "**Le tableau des taux de TVA n'est pas vérifié** ; les taux de change proviennent de la BCE. Avec les coûts réels des filiales, une colonne de marge réelle remplacera le scénario."},
     "cc_note_5": {"en": "Sources: Open Food Facts contributors (ODbL), ECB, Eurostat. Details in `docs/DATA_SOURCES.md`.",
                   "fr": "Sources : contributeurs Open Food Facts (ODbL), BCE, Eurostat. Détails dans `docs/DATA_SOURCES.md`."},
 }
 
-COMPLAINT_FR = {"none": "aucune", "price_value": "prix/valeur", "shipping_packaging": "livraison/emballage", "quality_defect": "défaut qualité"}
+COMPLAINT_FR = {"none": "aucune", "price_value": "rapport qualité-prix", "shipping_packaging": "livraison et emballage",
+                "quality_defect": "défaut de qualité"}
+
+
+_FR_SPACING = [(" :", "\u00a0:"), (" ;", "\u202f;"), (" ?", "\u202f?"), (" !", "\u202f!"), (" %", "\u00a0%"),
+               ("« ", "«\u00a0"), (" »", "\u00a0»")]
+
+
+def fr_typography(text: str) -> str:
+    """French typography: non-breaking space before : ; ? ! % and inside « »."""
+    for old, new in _FR_SPACING:
+        text = text.replace(old, new)
+    return text
 
 
 def t(key: str, lang: str = "en", **fmt) -> str:
     entry = STRINGS.get(key)
     text = (entry.get(lang) or entry.get("en")) if entry else key
-    return text.format(**fmt) if fmt else text
+    text = text.format(**fmt) if fmt else text
+    return fr_typography(text) if lang == "fr" else text
 
 
 CATEGORY_FR = {"Electronics": "Électronique", "Accessories": "Accessoires", "Home & Kitchen": "Maison et cuisine",
