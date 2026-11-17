@@ -63,7 +63,7 @@ def test_overlapping_batches_are_upserted(layout, sessions):
     r = run_pipeline(layout, isolate=False)
     s = silver(layout, "session")
     assert len(s) == 400 and s["session_id"].is_unique
-    assert r["results"]["silver_session"]["duplicates_across_batches"] == 100
+    assert r["results"]["silver_session"]["duplicates_vs_existing"] == 100
 
 
 def test_bad_rows_quarantined_with_reason(layout, sessions):

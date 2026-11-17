@@ -16,3 +16,10 @@ python -m uvicorn src.api:app --host 127.0.0.1 --port 8000   # chạy trong thư
 ```
 Endpoints: `GET /health`, `POST /v1/review/analyze`, `POST /v1/price/simulate`, `POST /v1/price/recommend`.
 Đặt `API_KEY` để bắt buộc header `X-API-Key`. Docker: `docker build -t pricing-api . && docker run -p 8000:8000 -e API_KEY=... pricing-api`.
+
+## Dữ liệu thật (EU/UK) và bảo mật
+```bash
+python -m src.connectors.openprices --currencies GBP EUR --countries GB FR DE IE --max-records 5000
+python -m src.pipeline run
+```
+Nguồn: Open Prices, Open Food Facts contributors, giấy phép ODbL. Xem `docs/SECURITY.md` và `docs/DATA_PIPELINE.md`.

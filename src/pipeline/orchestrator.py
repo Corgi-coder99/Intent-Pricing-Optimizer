@@ -4,6 +4,7 @@ mỗi bước chạy tối đa một lần mỗi lượt, bước lỗi/quá h�
 Mỗi bước chạy trong một tiến trình con (spawn) để timeout là kill thật, không để lại luồng chạy ngầm.
 """
 import multiprocessing as mp
+import shutil
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from src.pipeline import nodes
 from src.pipeline.infra import Layout, RunLock, atomic_write_json, cleanup_tmp, fingerprint, read_json
 from src.pipeline.nodes import Context
+from src.pipeline.policy import DEFAULT_POLICY, Policy
 
 HEARTBEAT_SECONDS = 5.0
 
@@ -23,6 +25,10 @@ class CycleError(ValueError):
 
 
 class NodeTimeout(RuntimeError):
+    pass
+
+
+class InsufficientResources(RuntimeError):
     pass
 
 
@@ -49,6 +55,8 @@ def build_nodes(use_llm: bool = False) -> Dict[str, Node]:
         Node("gold_sessions", nodes.gold_sessions, ("silver_session",), S, G, timeout=1800 if use_llm else 300),
         Node("gold_summaries", nodes.gold_summaries, ("gold_sessions",), G,
              lambda L: [L.gold / "region_summary.parquet", L.gold / "category_summary.parquet"], timeout=120),
+        Node("housekeeping", nodes.housekeeping,
+             ("silver_session", "silver_price_observation", "silver_review"), timeout=300),
         Node("gold_competitor_prices", nodes.gold_competitor_prices, ("silver_price_observation",), timeout=120),
     ]
     return {n.name: n for n in ns}
@@ -115,13 +123,16 @@ def run_isolated(node: Node, ctx: Context) -> Dict:
 
 def run_pipeline(layout: Layout, simulate_n: Optional[int] = None, use_llm: bool = False,
                  workers: int = 3, wait_lock: float = 0.0, graph: Optional[Dict[str, Node]] = None,
-                 isolate: Optional[bool] = None) -> Dict:
+                 isolate: Optional[bool] = None, policy: Policy = DEFAULT_POLICY) -> Dict:
     """isolate=None: bật cho đồ thị mặc định (timeout có hiệu lực), tắt cho đồ thị tuỳ biến dùng lambda (không pickle được)."""
     isolate = (graph is None) if isolate is None else isolate
     graph = graph or build_nodes(use_llm)
     topological_levels(graph)               # fail sớm nếu có vòng lặp, trước khi đụng tới dữ liệu
     layout.ensure()
-    ctx = Context(layout=layout, simulate_n=simulate_n, use_llm=use_llm)
+    free = shutil.disk_usage(layout.root).free
+    if free < policy.min_free_bytes:                # cầu dao: đĩa gần đầy thì không chạy để tránh làm hỏng dữ liệu
+        raise InsufficientResources(f"Only {free // 2**20} MiB free; need {policy.min_free_bytes // 2**20} MiB")
+    ctx = Context(layout=layout, simulate_n=simulate_n, use_llm=use_llm, policy=policy)
     fp_path = layout.state / "fingerprints.json"
 
     with RunLock(layout.state / "pipeline.lock", wait=wait_lock) as lock:

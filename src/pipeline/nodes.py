@@ -1,14 +1,20 @@
-"""Các bước của pipeline: landing -> bronze -> silver -> gold. Mọi bước idempotent (chạy lại không nhân đôi dữ liệu)."""
+"""Các bước của pipeline: landing -> bronze -> silver -> gold (+ housekeeping). Mọi bước idempotent."""
+import hashlib
+import json as _json
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import pandas as pd
 
-from src.pipeline.contracts import CONTRACTS, classify, clean, norm_col
+from src.pipeline.contracts import CONTRACTS, Contract, classify, clean
 from src.pipeline.infra import (Layout, atomic_write_json, atomic_write_parquet, read_json, sha256_file)
+from src.pipeline.policy import DEFAULT_POLICY, Policy
+
+DATA_TYPES = [t for t in CONTRACTS if t != "tombstone"]
+FILE_SUFFIXES = (".csv", ".jsonl", ".ndjson")
 
 
 @dataclass
@@ -16,6 +22,11 @@ class Context:
     layout: Layout
     simulate_n: Optional[int] = None
     use_llm: bool = False
+    policy: Policy = field(default_factory=lambda: DEFAULT_POLICY)
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 # ---------------------------------------------------------------- LANDING (nguồn mô phỏng, tuỳ chọn)
@@ -41,26 +52,58 @@ def _read_header(path: Path) -> List[str]:
         return list(pd.read_csv(path, nrows=0).columns)
     if path.suffix.lower() in (".jsonl", ".ndjson"):
         return list(pd.read_json(path, lines=True, nrows=1).columns)
-    raise ValueError(f"Định dạng không hỗ trợ: {path.suffix}")
+    raise ValueError(f"Unsupported format: {path.suffix}")
 
 
-def read_raw(path: Path) -> pd.DataFrame:
+def iter_raw(path: Path, chunk_rows: int) -> Iterator[pd.DataFrame]:
+    """Đọc theo khối để RAM không phình theo kích thước file."""
     if path.suffix.lower() == ".csv":
-        return pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[""])
-    return pd.read_json(path, lines=True, dtype=False).astype(object)
+        yield from pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[""], chunksize=chunk_rows)
+    else:
+        for chunk in pd.read_json(path, lines=True, dtype=False, chunksize=chunk_rows):
+            yield chunk.astype(object)
 
 
 def bronze_ingest(ctx: Context) -> Dict:
-    """Đăng ký mọi file ở landing: tính hash, phân loại, sao chép bất biến. File trùng hash bị bỏ qua."""
-    L = ctx.layout
+    """Đăng ký file ở landing: hash, phân loại, sao chép bất biến. Trùng hash bị bỏ qua; file quá lớn bị từ chối;
+    file đang ghi dở bị hoãn; mỗi lượt tối đa `max_files_per_run` file mới (phần còn lại để lượt sau)."""
+    L, pol = ctx.layout, ctx.policy
     manifest_path = L.state / "bronze_manifest.json"
     manifest: Dict[str, dict] = read_json(manifest_path, {})
-    new, dup, unclassified = 0, 0, 0
+    seen_path = L.state / "landing_seen.json"
+    seen: Dict[str, list] = read_json(seen_path, {})         # tên -> [size, mtime_ns, sha]: khỏi băm lại file cũ
+    new = dup = unclassified = deferred = rejected = 0
 
     for f in sorted(L.landing.iterdir()):
-        if not f.is_file() or f.suffix.lower() not in (".csv", ".jsonl", ".ndjson") or f.name.startswith("_"):
+        if not f.is_file() or f.suffix.lower() not in FILE_SUFFIXES or f.name.startswith("_"):
             continue
+        st = f.stat()
+        age = time.time() - st.st_mtime
+        if age < pol.landing_settle_seconds:                  # có thể đang được ghi: đợi rồi kiểm tra lại
+            time.sleep(pol.landing_settle_seconds - age)
+            st2 = f.stat()
+            if (st2.st_size, st2.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
+                deferred += 1
+                continue
+        cached = seen.get(f.name)
+        if cached and cached[0] == st.st_size and cached[1] == st.st_mtime_ns and cached[2] in manifest:
+            dup += 1
+            continue
+        if new >= pol.max_files_per_run:
+            deferred += 1
+            continue
+
+        if st.st_size > pol.max_file_bytes:
+            digest = hashlib.sha256(f"toolarge:{f.name}:{st.st_size}:{st.st_mtime_ns}".encode()).hexdigest()
+            if digest not in manifest:
+                manifest[digest] = {"file": f.name, "bronze_path": None, "record_type": None,
+                                    "status": "rejected:too_large", "ingested_at": _now()}
+                rejected += 1
+            seen[f.name] = [st.st_size, st.st_mtime_ns, digest]
+            continue
+
         digest = sha256_file(f)
+        seen[f.name] = [st.st_size, st.st_mtime_ns, digest]
         if digest in manifest:
             dup += 1
             continue
@@ -77,57 +120,42 @@ def bronze_ingest(ctx: Context) -> Dict:
             shutil.copy2(f, tmp)
             tmp.replace(dest)
         manifest[digest] = {"file": f.name, "bronze_path": str(dest.relative_to(L.root)), "record_type": rtype,
-                            "status": status, "ingested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                            "status": status, "ingested_at": _now()}
         new += 1
         unclassified += rtype is None
     atomic_write_json(manifest_path, manifest)
-    return {"new_files": new, "duplicate_files_skipped": dup, "unclassified": unclassified}
+    atomic_write_json(seen_path, seen)
+    return {"new_files": new, "duplicate_files_skipped": dup, "unclassified": unclassified,
+            "deferred_files": deferred, "rejected_too_large": rejected}
 
 
 # ---------------------------------------------------------------- SILVER
-def silver_build(ctx: Context, rtype: str) -> Dict:
-    """Ép kiểu + kiểm tra + khử trùng các file bronze của một loại, rồi upsert vào bảng silver."""
-    L, contract = ctx.layout, CONTRACTS[rtype]
-    manifest = read_json(L.state / "bronze_manifest.json", {})
-    state_path = L.state / f"silver_{rtype}_processed.json"
-    processed: List[str] = read_json(state_path, [])
-    pending = [(h, m) for h, m in manifest.items()
-               if m["record_type"] == rtype and h not in processed]
-    out_path = L.silver / f"{rtype}.parquet"
-    if not pending:
-        return {"batches": 0, "rows_total": len(pd.read_parquet(out_path)) if out_path.exists() else 0}
+def _norm_part(value: str, kind: str) -> str:
+    v = str(value).strip()
+    try:
+        if kind in ("float", "int"):
+            return format(float(v), "g")
+        if kind == "datetime":
+            return pd.to_datetime(v, utc=True).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        pass
+    return v
 
-    frames, totals = [], {"rows_in": 0, "rejected": 0, "duplicates_in_batch": 0}
-    for digest, meta in pending:
-        good, bad, m = clean(read_raw(L.root / meta["bronze_path"]), contract)
-        frames.append(good)
-        for k in totals:
-            totals[k] += m[k]
-        if len(bad):
-            qdir = L.quarantine / rtype
-            qdir.mkdir(parents=True, exist_ok=True)
-            atomic_write_parquet(bad.astype(str), qdir / f"{digest[:12]}.parquet")   # tên theo hash -> idempotent
-        processed.append(digest)
 
-    all_new = pd.concat(frames, ignore_index=True)
-    new_rows = all_new.drop_duplicates(subset=contract.key, keep="last")
-    totals["duplicates_across_batches"] = len(all_new) - len(new_rows)
-    updated = archived = 0
-    if out_path.exists():
-        existing = pd.read_parquet(out_path)
-        old_versions = _changed_versions(existing, new_rows, contract.key)
-        if len(old_versions):
-            archived = _archive_history(L, rtype, old_versions, contract.key, pending[-1][0][:12])
-        updated = len(old_versions)
-        merged = pd.concat([existing, new_rows], ignore_index=True)
-    else:
-        merged = new_rows
-    before = len(merged)
-    merged = merged.drop_duplicates(subset=contract.key, keep="last").sort_values(contract.key).reset_index(drop=True)
-    atomic_write_parquet(merged, out_path)
-    atomic_write_json(state_path, processed)      # ghi sau cùng: nếu sập giữa chừng thì lần sau xử lý lại, vẫn đúng
-    return {"batches": len(pending), **totals, "duplicates_vs_existing": before - len(merged),
-            "updated_rows": updated, "archived_versions": archived, "rows_total": len(merged)}
+def key_strings(df: pd.DataFrame, contract: Contract) -> pd.Series:
+    """Khoá tổng hợp dạng chuỗi (chuẩn hoá số/ngày) để so khớp với tombstone."""
+    out = None
+    for c in contract.key:
+        kind = contract.dtypes.get(c, "str")
+        s = df[c]
+        if kind in ("float", "int"):
+            part = s.map(lambda v: format(float(v), "g"))
+        elif kind == "datetime":
+            part = pd.to_datetime(s, utc=True, errors="coerce").dt.strftime("%Y-%m-%d")
+        else:
+            part = s.astype(str).str.strip()
+        out = part if out is None else out + "|" + part
+    return out
 
 
 def _row_hash(df: pd.DataFrame, cols: List[str]) -> pd.Series:
@@ -145,28 +173,205 @@ def _changed_versions(existing: pd.DataFrame, new: pd.DataFrame, key: List[str])
     return existing.merge(changed, on=key, how="inner")
 
 
-def _archive_history(L: Layout, rtype: str, old: pd.DataFrame, key: List[str], batch: str) -> int:
-    """Lưu phiên bản cũ vào silver/history/<loại>.parquet (khử trùng theo khoá + nội dung nên chạy lại không nhân đôi)."""
+def _archive_history(L: Layout, rtype: str, old: pd.DataFrame, key: List[str], batch: str, reason: str) -> int:
+    """Lưu phiên bản cũ/dòng bị xoá vào silver/history/<loại>.parquet (khử trùng nên chạy lại không nhân đôi)."""
     hdir = L.silver / "history"
     hdir.mkdir(parents=True, exist_ok=True)
     path = hdir / f"{rtype}.parquet"
     cols = [c for c in old.columns if c not in key]
-    old = old.assign(row_hash=_row_hash(old, cols).values, superseded_by_batch=batch,
+    old = old.assign(row_hash=_row_hash(old, cols).values, superseded_by_batch=batch, history_reason=reason,
                      superseded_at=pd.Timestamp.now(tz="UTC"))
+    before = 0
     if path.exists():
-        old = pd.concat([pd.read_parquet(path), old], ignore_index=True)
-    before = len(pd.read_parquet(path)) if path.exists() else 0
-    old = old.drop_duplicates(subset=[*key, "row_hash"], keep="first")
+        prev = pd.read_parquet(path)
+        before = len(prev)
+        old = pd.concat([prev, old], ignore_index=True)
+    old = old.drop_duplicates(subset=[*key, "row_hash", "history_reason"], keep="first")
     atomic_write_parquet(old, path)
     return len(old) - before
+
+
+def _apply_tombstones(current: Optional[pd.DataFrame], rows: pd.DataFrame, contract: Contract,
+                      L: Layout, batch: str) -> Tuple[Optional[pd.DataFrame], int, int]:
+    """Xoá khỏi silver các dòng có khoá khớp; bản bị xoá được lưu vào history. Trả (bảng mới, số xoá, số khoá không tìm thấy)."""
+    wanted = set()
+    for k in rows["record_key"].astype(str):
+        parts = k.split("|")
+        if len(parts) == len(contract.key):
+            wanted.add("|".join(_norm_part(p, contract.dtypes.get(c, "str")) for p, c in zip(parts, contract.key)))
+    if current is None or current.empty or not wanted:
+        return current, 0, len(wanted)
+    mask = key_strings(current, contract).isin(wanted)
+    removed = current[mask]
+    if len(removed):
+        _archive_history(L, contract.name, removed, contract.key, f"tombstone:{batch}", "deleted")
+    found = int(mask.sum())
+    return current[~mask].reset_index(drop=True), found, max(0, len(wanted) - found)
+
+
+def silver_build(ctx: Context, rtype: str) -> Dict:
+    """Xử lý tuần tự theo thứ tự nạp: lô dữ liệu (ép kiểu, kiểm tra, khử trùng, upsert, lưu lịch sử) và
+    tombstone (xoá có lưu lịch sử). Idempotent: danh sách đã xử lý chỉ ghi sau khi bảng silver đã ghi xong."""
+    L, contract, pol = ctx.layout, CONTRACTS[rtype], ctx.policy
+    manifest = read_json(L.state / "bronze_manifest.json", {})
+    data_state = L.state / f"silver_{rtype}_processed.json"
+    ts_state = L.state / f"silver_{rtype}_tombstones_processed.json"
+    done_data: List[str] = read_json(data_state, [])
+    done_ts: List[str] = read_json(ts_state, [])
+    out_path = L.silver / f"{rtype}.parquet"
+
+    events = []
+    for h, m in manifest.items():                      # thứ tự chèn của manifest = thứ tự nạp
+        if m.get("status") != "registered":
+            continue
+        if m["record_type"] == rtype and h not in done_data:
+            events.append((h, m, "data"))
+        elif m["record_type"] == "tombstone" and h not in done_ts:
+            events.append((h, m, "tombstone"))
+    current = pd.read_parquet(out_path) if out_path.exists() else None
+    if not events:
+        return {"batches": 0, "rows_total": 0 if current is None else len(current)}
+
+    t = {"batches": 0, "tombstone_files": 0, "rows_in": 0, "rejected": 0, "duplicates_in_batch": 0,
+         "duplicates_vs_existing": 0, "updated_rows": 0, "archived_versions": 0, "deleted_rows": 0,
+         "tombstone_keys_not_found": 0, "quarantine_truncated": False}
+    for digest, meta, kind in events:
+        path = L.root / meta["bronze_path"]
+        if kind == "tombstone":
+            frames = [clean(c, CONTRACTS["tombstone"])[0] for c in iter_raw(path, pol.chunk_rows)]
+            ts = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["record_type", "record_key"])
+            ts = ts[ts["record_type"].astype(str).str.lower() == rtype]
+            current, found, missing = _apply_tombstones(current, ts, contract, L, digest[:12])
+            t["deleted_rows"] += found
+            t["tombstone_keys_not_found"] += missing
+            t["tombstone_files"] += 1
+            done_ts.append(digest)
+            continue
+
+        goods, bads, bad_kept = [], [], 0
+        for chunk in iter_raw(path, pol.chunk_rows):
+            good, bad, m = clean(chunk, contract)
+            goods.append(good)
+            t["rows_in"] += m["rows_in"]
+            t["rejected"] += m["rejected"]
+            t["duplicates_in_batch"] += m["duplicates_in_batch"]
+            room = max(0, pol.max_quarantine_rows_per_batch - bad_kept)
+            if len(bad):
+                if room > 0:
+                    bads.append(bad.head(room))
+                    bad_kept += min(len(bad), room)
+                if len(bad) > room:
+                    t["quarantine_truncated"] = True
+        if bads:
+            qdir = L.quarantine / rtype
+            qdir.mkdir(parents=True, exist_ok=True)
+            atomic_write_parquet(pd.concat(bads, ignore_index=True).astype(str), qdir / f"{digest[:12]}.parquet")
+        all_new = pd.concat(goods, ignore_index=True)
+        batch_good = all_new.drop_duplicates(subset=contract.key, keep="last")
+        t["duplicates_in_batch"] += len(all_new) - len(batch_good)
+
+        if current is not None and len(current):
+            old_versions = _changed_versions(current, batch_good, contract.key)
+            if len(old_versions):
+                t["archived_versions"] += _archive_history(L, rtype, old_versions, contract.key, digest[:12], "updated")
+            t["updated_rows"] += len(old_versions)
+            merged = pd.concat([current, batch_good], ignore_index=True)
+        else:
+            merged = batch_good
+        before = len(merged)
+        current = merged.drop_duplicates(subset=contract.key, keep="last").reset_index(drop=True)
+        t["duplicates_vs_existing"] += before - len(current)
+        t["batches"] += 1
+        done_data.append(digest)
+
+    if current is not None:
+        atomic_write_parquet(current.sort_values(contract.key).reset_index(drop=True), out_path)
+    atomic_write_json(data_state, done_data)           # ghi sau cùng: sập giữa chừng -> lượt sau xử lý lại, kết quả vẫn đúng
+    atomic_write_json(ts_state, done_ts)
+    return {**t, "rows_total": 0 if current is None else len(current)}
+
+
+# ---------------------------------------------------------------- HOUSEKEEPING (dọn dẹp, giới hạn dung lượng)
+def housekeeping(ctx: Context) -> Dict:
+    """Xoá bronze đã xử lý xong và quá hạn/vượt ngân sách (manifest vẫn giữ hash nên file cũ nạp lại không bị tính 2 lần),
+    dọn quarantine, cắt history cũ, xoá file mô phỏng đã nạp ở landing."""
+    import calendar
+    L, pol = ctx.layout, ctx.policy
+    manifest_path = L.state / "bronze_manifest.json"
+    manifest: Dict[str, dict] = read_json(manifest_path, {})
+    data_done = {t: set(read_json(L.state / f"silver_{t}_processed.json", [])) for t in DATA_TYPES}
+    ts_done = {t: set(read_json(L.state / f"silver_{t}_tombstones_processed.json", [])) for t in DATA_TYPES}
+
+    def processed(h: str, m: dict) -> bool:
+        rt = m["record_type"]
+        if rt == "tombstone":
+            return all(h in ts_done[t] for t in DATA_TYPES)
+        if rt in data_done:
+            return h in data_done[rt]
+        return True                                    # unclassified / unreadable: không có gì để xử lý
+
+    def size_of(m: dict) -> int:
+        p = L.root / m["bronze_path"] if m.get("bronze_path") else None
+        return p.stat().st_size if p and p.exists() else 0
+
+    def age_ts(m: dict) -> float:
+        return calendar.timegm(time.strptime(m["ingested_at"], "%Y-%m-%dT%H:%M:%SZ"))
+
+    live = [(h, m) for h, m in manifest.items() if m.get("bronze_path") and (L.root / m["bronze_path"]).exists()]
+    cutoff = time.time() - pol.bronze_retention_days * 86400
+    freed = expired = 0
+
+    def expire(m: dict, why: str) -> None:
+        nonlocal freed, expired
+        freed += size_of(m)
+        (L.root / m["bronze_path"]).unlink(missing_ok=True)
+        m["status"], m["expired_at"], m["expired_reason"] = "expired", _now(), why
+        expired += 1
+
+    for h, m in live:
+        if processed(h, m) and age_ts(m) < cutoff:
+            expire(m, "retention")
+    live = [(h, m) for h, m in live if m["status"] != "expired"]
+    total = sum(size_of(m) for _, m in live)
+    for h, m in sorted(live, key=lambda x: age_ts(x[1])):          # cũ nhất trước
+        if total <= pol.bronze_max_bytes:
+            break
+        if processed(h, m):
+            total -= size_of(m)
+            expire(m, "size_budget")
+    atomic_write_json(manifest_path, manifest)
+
+    q_deleted = 0
+    qcut = time.time() - pol.quarantine_retention_days * 86400
+    for p in L.quarantine.rglob("*.parquet"):
+        if p.stat().st_mtime < qcut:
+            p.unlink()
+            q_deleted += 1
+
+    h_dropped = 0
+    hcut = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=pol.history_retention_days)
+    hdir = L.silver / "history"
+    for p in (hdir.glob("*.parquet") if hdir.exists() else []):
+        hist = pd.read_parquet(p)
+        keep = hist[hist["superseded_at"] >= hcut]
+        if len(keep) != len(hist):
+            h_dropped += len(hist) - len(keep)
+            atomic_write_parquet(keep.reset_index(drop=True), p)
+
+    landing_removed = 0
+    for f in L.landing.glob("simulated_*.csv"):        # file do chính pipeline sinh, đã có bản trong bronze
+        prefix = f.stem.split("_", 1)[1]
+        if any(h.startswith(prefix) for h in manifest):
+            f.unlink()
+            landing_removed += 1
+    return {"bronze_expired": expired, "bytes_freed": freed, "quarantine_deleted": q_deleted,
+            "history_rows_dropped": h_dropped, "landing_removed": landing_removed}
 
 
 # ---------------------------------------------------------------- GOLD
 def gold_sessions(ctx: Context) -> Dict:
     """Làm giàu phiên bằng tín hiệu review. Mỗi review khác nhau chỉ được phân tích MỘT lần (cache bền trên đĩa),
     nên đổi/thêm dữ liệu không phải gọi lại LLM cho review cũ."""
-    import hashlib
-    import json as _json
     from src.ai_extractor import ReviewSignalExtractor
     ext = ReviewSignalExtractor(use_llm=ctx.use_llm)
     mode = "llm:gpt-4o-mini" if ext.use_llm else "offline:" + hashlib.sha256(
@@ -174,7 +379,10 @@ def gold_sessions(ctx: Context) -> Dict:
     cache_path = ctx.layout.state / "review_signal_cache.json"
     cache: Dict[str, dict] = read_json(cache_path, {})
 
-    df = pd.read_parquet(ctx.layout.silver / "session.parquet")
+    src = ctx.layout.silver / "session.parquet"
+    if not src.exists():
+        return {"skipped": "no session data yet"}
+    df = pd.read_parquet(src)
     key = lambda t: hashlib.sha256(f"{mode}|{t}".encode()).hexdigest()
     new_calls = 0
     for text in df["recent_review_text"].unique():
@@ -194,7 +402,10 @@ def gold_sessions(ctx: Context) -> Dict:
 
 def gold_summaries(ctx: Context) -> Dict:
     from src import analytics
-    df = pd.read_parquet(ctx.layout.gold / "sessions_features.parquet")
+    src = ctx.layout.gold / "sessions_features.parquet"
+    if not src.exists():
+        return {"skipped": "no session features yet"}
+    df = pd.read_parquet(src)
     atomic_write_parquet(analytics.region_summary(df), ctx.layout.gold / "region_summary.parquet")
     atomic_write_parquet(analytics.category_summary(df), ctx.layout.gold / "category_summary.parquet")
     return {"regions": df["region"].nunique(), "categories": df["category"].nunique()}

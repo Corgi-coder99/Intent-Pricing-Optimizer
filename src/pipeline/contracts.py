@@ -77,6 +77,13 @@ CONTRACTS: Dict[str, Contract] = {
         ],
         normalize=_price_norm,
     ),
+    # Tombstone: yêu cầu xoá. record_key = các cột khoá của loại đó nối bằng "|" (số: định dạng %g, ngày: YYYY-MM-DD)
+    "tombstone": Contract(
+        name="tombstone",
+        key=["record_type", "record_key"],
+        required=["record_type", "record_key"],
+        dtypes={"record_type": "str", "record_key": "str", "deleted_at": "datetime"},
+    ),
     "review": Contract(
         name="review",
         key=["review_id"],

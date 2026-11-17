@@ -53,7 +53,27 @@ Cần nhanh hơn thì `--no-isolate` (mất cưỡng chế timeout).
 - Huấn luyện lại chỉ khi gold hoặc mã mô hình đổi.
 - Việc phải làm lại mỗi lần dữ liệu đổi: tính lại bảng gold (giây) và huấn luyện lại (giây). Bronze tăng dần, chưa có chính sách xoá file cũ.
 
-## Giới hạn
-- Dòng bị nguồn xoá không tự bị xoá khỏi silver (chỉ có upsert); muốn đồng bộ xoá cần file tombstone.
+## Xoá dữ liệu (tombstone) và dọn bronze
+- Nguồn muốn xoá bản ghi: thả file CSV có cột `record_type` (session | price_observation | review) và `record_key`
+  (các cột khoá nối bằng `|`; số dạng `%g`, ngày `YYYY-MM-DD`; ví dụ `1|A|FR|Paris|2026-01-01|1.5`).
+  Silver xoá dòng khớp và lưu bản bị xoá vào `silver/history/` với `history_reason=deleted`. Áp dụng theo thứ tự nạp.
+- Bronze: file đã xử lý xong sẽ bị xoá sau `bronze_retention_days` (90) hoặc khi vượt `bronze_max_bytes` (2 GB, xoá cũ nhất
+  trước). Manifest vẫn giữ hash nên nạp lại cùng nội dung không bị tính hai lần. File CHƯA xử lý không bao giờ bị xoá.
+- Quarantine giữ 30 ngày, history giữ 365 ngày (đều chỉnh được ở `src/pipeline/policy.py`).
+
+## Chống quá tải (policy.py)
+| Giới hạn | Mặc định | Khi vượt |
+|---|---|---|
+| Dung lượng 1 file | 500 MB | từ chối, ghi nhận một lần, không sao chép |
+| File mới mỗi lượt | 200 | phần còn lại để lượt sau |
+| Đọc theo khối | 200.000 dòng | RAM không phình theo file |
+| Dòng quarantine mỗi lô | 100.000 | cắt bớt, chỉ số `quarantine_truncated` |
+| Đĩa trống tối thiểu | 1 GB | từ chối chạy (`InsufficientResources`) |
+| File đang ghi dở | 0,5 giây ổn định | hoãn sang lượt sau |
+Mẹo cho nguồn ghi file lớn: ghi vào `*.tmp` rồi đổi tên sang `.csv`.
+
+## Giới hạn còn lại
+- Silver và gold dùng pandas trong RAM; trần thực tế vài triệu dòng. Lớn hơn cần chuyển sang DuckDB/Spark.
+- Thứ tự áp dụng theo thứ tự nạp; trong cùng một lượt, file được xếp theo tên.
+- Chưa có timeout theo từng chunk bên trong một bước (chỉ timeout cả bước).
 - Simulation mới (nội dung khác) cộng dồn vào silver theo session_id; muốn làm lại từ đầu hãy xoá `data/`.
-- Chưa có adapter Open Prices; đã có sẵn hợp đồng `price_observation` để nối vào.

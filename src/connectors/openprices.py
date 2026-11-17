@@ -1,0 +1,268 @@
+"""Connector Open Prices (Open Food Facts) -> file CSV ở landing/, để pipeline bronze->silver->gold xử lý.
+
+Nguồn: https://prices.openfoodfacts.org  |  Giấy phép dữ liệu: ODbL (phải ghi nguồn "Open Food Facts contributors").
+
+Coi phản hồi từ internet là KHÔNG TIN CẬY. Các lớp bảo vệ:
+  * Chỉ HTTPS tới đúng một host trong allowlist (kiểm tra bằng urlparse, chống mẹo userinfo/subdomain giả).
+  * Kiểm tra chứng chỉ TLS (ngữ cảnh mặc định); KHÔNG theo chuyển hướng; không bao giờ tải URL nằm trong dữ liệu trả về
+    (chống SSRF; không tải ảnh/biên lai).
+  * Giới hạn: timeout, dung lượng mỗi phản hồi, số trang, số bản ghi, nhịp gọi 1 request/giây, thử lại có giới hạn.
+  * Chỉ JSON; chỉ giữ các trường trong danh sách cho phép. Bỏ `owner`, `owner_comment`, `proof`, URL ảnh... (dữ liệu
+    định danh người đóng góp không bao giờ được lưu).
+  * Kiểm tra từng giá trị (mã sản phẩm, giá, tiền tệ, ngày, toạ độ, quốc gia) và làm sạch văn bản: bỏ ký tự điều khiển,
+    chặn chèn công thức CSV (=, +, -, @), thay '|' để khoá tombstone không bị nhập nhằng.
+  * Không gửi thông tin cá nhân: User-Agent chung, không cookie, không token. Ghi file bằng tmp + rename.
+  * Dữ liệu tải về không bao giờ được thực thi hay `eval`; chỉ qua json.loads và các hợp đồng dữ liệu của pipeline.
+"""
+import argparse
+import hashlib
+import json
+import math
+import os
+import re
+import ssl
+import sys
+import time
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional
+
+import pandas as pd
+
+ALLOWED_HOST = "prices.openfoodfacts.org"
+API_PATH = "/api/v1/prices"
+USER_AGENT = "portfolio-research-client/1.0"
+ALLOWED_CURRENCIES = ("GBP", "EUR")
+DEFAULT_COUNTRIES = ("GB", "FR", "DE", "IE")
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+PAGE_SIZE = 100
+TIMEOUT_SECONDS = 20
+MIN_INTERVAL_SECONDS = 1.0
+MAX_RETRIES = 3
+OUTPUT_COLUMNS = ["product_code", "product_name", "category", "price", "currency", "store", "city",
+                  "country", "lat", "lon", "observed_at", "source"]
+
+
+class ConnectorError(RuntimeError):
+    pass
+
+
+class ResponseTooLarge(ConnectorError):
+    pass
+
+
+class HTTPStatusError(ConnectorError):
+    def __init__(self, code: int):
+        super().__init__(f"HTTP {code}")
+        self.code = code
+
+
+# ------------------------------------------------------------------ mạng
+def validate_url(url: str) -> str:
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "https" or u.hostname != ALLOWED_HOST or u.username or u.password or u.port not in (None, 443):
+        raise ConnectorError(f"URL not allowed: {u.scheme}://{u.hostname}")
+    if u.path != API_PATH:
+        raise ConnectorError(f"Path not allowed: {u.path}")
+    return url
+
+
+def build_url(currency: str, page: int, size: int = PAGE_SIZE) -> str:
+    if currency not in ALLOWED_CURRENCIES:
+        raise ValueError(f"currency must be one of {ALLOWED_CURRENCIES}")
+    if not (1 <= size <= PAGE_SIZE) or not (1 <= page <= 10_000):
+        raise ValueError("page/size out of range")
+    q = urllib.parse.urlencode({"currency": currency, "size": size, "page": page, "order_by": "-date"})
+    return validate_url(f"https://{ALLOWED_HOST}{API_PATH}?{q}")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise ConnectorError("Redirects are not followed")
+
+
+def read_capped(stream, limit: int = MAX_RESPONSE_BYTES) -> bytes:
+    data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise ResponseTooLarge(f"Response larger than {limit} bytes")
+    return data
+
+
+def http_get(url: str) -> bytes:
+    validate_url(url)
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with opener.open(req, timeout=TIMEOUT_SECONDS) as resp:
+        validate_url(resp.geturl().split("?")[0] + "")
+        ctype = resp.headers.get("Content-Type", "")
+        if "json" not in ctype.lower():
+            raise ConnectorError(f"Unexpected content type: {ctype[:50]}")
+        return read_capped(resp)
+
+
+def fetch_json(url: str, fetch: Callable[[str], bytes], sleep: Callable[[float], None]) -> dict:
+    last: Optional[Exception] = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            data = json.loads(fetch(url))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 or exc.code >= 500:
+                retry_after = 0.0
+                try:
+                    retry_after = min(60.0, float(exc.headers.get("Retry-After", 0))) if exc.headers else 0.0
+                except ValueError:
+                    pass
+                sleep(max(retry_after, 2.0 ** attempt))
+                last = exc
+                continue
+            raise HTTPStatusError(exc.code)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            sleep(2.0 ** attempt)
+            last = exc
+            continue
+        except ValueError as exc:                           # JSON hỏng: không thử lại
+            raise ConnectorError(f"Invalid JSON: {exc}")
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise ConnectorError("Unexpected response shape")
+        return data
+    raise ConnectorError(f"Giving up after {MAX_RETRIES} attempts: {type(last).__name__}")
+
+
+# ------------------------------------------------------------------ làm sạch & kiểm tra giá trị
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def sanitize_text(value, max_len: int = 200) -> Optional[str]:
+    if value is None or isinstance(value, (dict, list, bool)):
+        return None
+    text = unicodedata.normalize("NFKC", str(value)).translate({9: " ", 10: " ", 13: " "})
+    text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("C") or ch in " ")
+    text = re.sub(r"\s+", " ", text).strip().replace("|", "/")[:max_len]
+    if not text:
+        return None
+    if text.startswith(_FORMULA_START):
+        text = "'" + text                                   # chặn CSV/Excel formula injection
+    return text
+
+
+def _number(value, lo: float, hi: float) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    f = float(value)
+    return f if math.isfinite(f) and lo < f < hi else None
+
+
+def parse_item(item: dict, countries: Iterable[str] = DEFAULT_COUNTRIES) -> Optional[Dict]:
+    """Một bản ghi API -> dòng sạch theo danh sách trường cho phép; None nếu không hợp lệ/không thuộc phạm vi."""
+    if not isinstance(item, dict) or item.get("duplicate_of") is not None:
+        return None
+    loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+    country = str(loc.get("osm_address_country_code") or "").upper()
+    if country not in set(countries):
+        return None
+    code = str(item.get("product_code") or "")
+    currency = str(item.get("currency") or "").upper()
+    date = str(item.get("date") or "")
+    price = _number(item.get("price"), 0.0, 1_000_000.0)
+    if (not re.fullmatch(r"\d{4,14}", code) or currency not in ALLOWED_CURRENCIES
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or price is None):
+        return None
+    product = item.get("product") if isinstance(item.get("product"), dict) else {}
+    cats = product.get("categories_tags") if isinstance(product.get("categories_tags"), list) else []
+    category = sanitize_text((cats[-1] if cats else item.get("category_tag")), 80)
+    lat, lon = _number(loc.get("osm_lat"), -90.0, 90.0), _number(loc.get("osm_lon"), -180.0, 180.0)
+    return {
+        "product_code": code,
+        "product_name": sanitize_text(item.get("product_name") or product.get("product_name")),
+        "category": category,
+        "price": round(price, 4),
+        "currency": currency,
+        "store": sanitize_text(loc.get("osm_name"), 100),
+        "city": sanitize_text(loc.get("osm_address_city"), 100),
+        "country": country,
+        "lat": lat,
+        "lon": lon,
+        "observed_at": date,
+        "source": "openfoodfacts-prices",
+    }
+
+
+# ------------------------------------------------------------------ tải dữ liệu
+def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable[str] = DEFAULT_COUNTRIES,
+                 max_records: int = 5000, max_pages: int = 60,
+                 fetch: Callable[[str], bytes] = http_get,
+                 sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
+    """max_records: tổng số bản ghi giữ lại; max_pages: số trang quét tối đa MỖI tiền tệ (API không lọc được theo quốc gia)."""
+    countries = tuple(c.upper() for c in countries)
+    rows: List[Dict] = []
+    last_call = 0.0
+    for currency in currencies:
+        for page in range(1, max_pages + 1):
+            wait = MIN_INTERVAL_SECONDS - (time.monotonic() - last_call)
+            if last_call and wait > 0:
+                sleep(wait)
+            last_call = time.monotonic()
+            try:
+                data = fetch_json(build_url(currency, page), fetch, sleep)
+            except HTTPStatusError as exc:
+                if exc.code == 404 and page > 1:       # API trả 404 khi vượt trang cuối: hết dữ liệu
+                    break
+                raise
+            items = data["items"]
+            if not items:
+                break
+            for it in items:
+                row = parse_item(it, countries)
+                if row:
+                    rows.append(row)
+                    if len(rows) >= max_records:
+                        break
+            if len(rows) >= max_records:
+                break
+        if len(rows) >= max_records:
+            break
+    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+
+
+def write_to_landing(df: pd.DataFrame, landing: Path) -> Optional[Path]:
+    """Ghi CSV vào landing: tmp + rename, tên theo nội dung (tải lại cùng dữ liệu không tạo file trùng)."""
+    if df.empty:
+        return None
+    landing.mkdir(parents=True, exist_ok=True)
+    df = df.drop_duplicates().sort_values(["country", "product_code", "store", "observed_at"]).reset_index(drop=True)
+    payload = df.to_csv(index=False).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()[:12]
+    final = landing / f"openprices_{digest}.csv"
+    if final.exists():
+        return final
+    tmp = landing / f"_{final.name}.{os.getpid()}.tmp"
+    tmp.write_bytes(payload)
+    os.replace(tmp, final)
+    return final
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    from src.config import DATA_DIR
+    ap = argparse.ArgumentParser(prog="python -m src.connectors.openprices")
+    ap.add_argument("--currencies", nargs="+", default=["GBP", "EUR"], choices=list(ALLOWED_CURRENCIES))
+    ap.add_argument("--countries", nargs="+", default=list(DEFAULT_COUNTRIES))
+    ap.add_argument("--max-records", type=int, default=5000)
+    ap.add_argument("--max-pages", type=int, default=60)
+    args = ap.parse_args(argv)
+    if not (1 <= args.max_records <= 100_000 and 1 <= args.max_pages <= 500):
+        ap.error("max-records must be 1..100000 and max-pages 1..500")
+    try:
+        df = fetch_prices(args.currencies, args.countries, args.max_records, args.max_pages)
+    except ConnectorError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    out = write_to_landing(df, DATA_DIR / "landing")
+    print(f"kept {len(df)} rows; countries={sorted(df['country'].unique()) if len(df) else []}; file={out.name if out else None}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

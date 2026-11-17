@@ -70,3 +70,41 @@ def test_review_analysis_cached_and_reload(client):
     finally:
         api.state["extractor"].analyze_single_review = real
     assert client.post("/v1/admin/reload").json() == {"reloaded": True}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_limits():
+    from src import api
+    api.reset_limits()
+    yield
+    api.reset_limits()
+
+
+def test_refuses_to_run_open_when_key_required_but_missing(client, monkeypatch):
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.setenv("REQUIRE_API_KEY", "1")
+    r = client.post("/v1/review/analyze", json={"text": "great"})
+    assert r.status_code == 503
+
+
+def test_rate_limit_and_security_headers(client, monkeypatch):
+    from src import api
+    monkeypatch.setattr(api, "RATE_LIMIT_PER_MIN", 3)
+    codes = [client.get("/health").status_code for _ in range(5)]
+    assert codes == [200, 200, 200, 429, 429]
+    api.reset_limits()
+    h = client.get("/health").headers
+    assert h["x-content-type-options"] == "nosniff" and h["cache-control"] == "no-store"
+
+
+def test_key_guessing_is_throttled(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "secret")
+    body = {"text": "great"}
+    for _ in range(10):
+        assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "bad"}).status_code == 401
+    assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "secret"}).status_code == 429
+
+
+def test_oversized_body_rejected(client):
+    r = client.post("/v1/review/analyze", content=b"x" * 70_000, headers={"content-type": "application/json"})
+    assert r.status_code == 413

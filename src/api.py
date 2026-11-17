@@ -5,10 +5,13 @@ Bảo mật: đặt biến môi trường API_KEY để bắt buộc header `X-A
 """
 import hmac
 import os
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from src.agent_decision import PricingDecisionAgent
@@ -34,9 +37,51 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Intent-Driven Pricing API", version="1.0.0", lifespan=lifespan)
 
 
+MAX_BODY_BYTES = 64 * 1024
+RATE_LIMIT_PER_MIN = 120          # mỗi client
+AUTH_FAIL_LIMIT_PER_MIN = 10      # sai khoá quá số này thì bị chặn tạm (chống dò khoá)
+_hits: Dict[str, deque] = defaultdict(deque)
+_fails: Dict[str, deque] = defaultdict(deque)
+
+
+def reset_limits() -> None:
+    _hits.clear()
+    _fails.clear()
+
+
+def _over(bucket: Dict[str, deque], who: str, limit: int, window: float = 60.0) -> bool:
+    now = time.monotonic()
+    q = bucket[who]
+    while q and now - q[0] > window:
+        q.popleft()
+    return len(q) >= limit
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    """Chống quá tải/dò khoá: giới hạn kích thước body, tốc độ gọi, số lần sai khoá; thêm header bảo mật.
+    Lưu ý: sau reverse proxy, client.host là IP của proxy; hãy giới hạn tốc độ cả ở proxy."""
+    who = request.client.host if request.client else "unknown"
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        return JSONResponse({"detail": "Request body too large"}, status_code=413)
+    if _over(_hits, who, RATE_LIMIT_PER_MIN) or _over(_fails, who, AUTH_FAIL_LIMIT_PER_MIN):
+        return JSONResponse({"detail": "Too many requests"}, status_code=429, headers={"Retry-After": "60"})
+    _hits[who].append(time.monotonic())
+    response = await call_next(request)
+    if response.status_code == 401:
+        _fails[who].append(time.monotonic())
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
 def require_key(x_api_key: Optional[str] = Header(default=None)) -> None:
     expected = os.getenv("API_KEY", "")
-    if expected and not hmac.compare_digest(x_api_key or "", expected):
+    if not expected and os.getenv("REQUIRE_API_KEY") == "1":
+        raise HTTPException(status_code=503, detail="Server misconfigured: API_KEY is required")   # không mở công khai do quên cấu hình
+    if expected and not hmac.compare_digest((x_api_key or "").encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
 
 
