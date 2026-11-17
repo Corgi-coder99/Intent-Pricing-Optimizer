@@ -1,0 +1,13 @@
+# THAM CHIẾU, CHƯA ĐƯỢC KIỂM CHỨNG: mức VAT (%) thay đổi theo luật và theo nhóm hàng. Hãy đối chiếu với nguồn chính thức
+# (ví dụ trang "VAT rates" của Ủy ban châu Âu và HMRC cho Anh) trước khi dùng cho quyết định thật.
+# Có thể ghi đè bằng file <data>/reference/vat_rates.csv cùng định dạng.
+# reduced_rate_food: mức áp dụng cho phần lớn thực phẩm (dữ liệu giá thị trường Open Prices chủ yếu là thực phẩm).
+country,standard_rate,reduced_rate_food,verified
+FR,20,5.5,no
+DE,19,7,no
+GB,20,0,no
+IE,23,0,no
+ES,21,10,no
+IT,22,10,no
+NL,21,9,no
+BE,21,6,no

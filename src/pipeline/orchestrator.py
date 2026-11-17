@@ -55,9 +55,14 @@ def build_nodes(use_llm: bool = False) -> Dict[str, Node]:
         Node("gold_sessions", nodes.gold_sessions, ("silver_session",), S, G, timeout=1800 if use_llm else 300),
         Node("gold_summaries", nodes.gold_summaries, ("gold_sessions",), G,
              lambda L: [L.gold / "region_summary.parquet", L.gold / "category_summary.parquet"], timeout=120),
+        Node("silver_fx_rate", partial(nodes.silver_build, rtype="fx_rate"), ("bronze_ingest",), timeout=300),
+        Node("silver_branch_cost", partial(nodes.silver_build, rtype="branch_cost"), ("bronze_ingest",), timeout=300),
         Node("housekeeping", nodes.housekeeping,
-             ("silver_session", "silver_price_observation", "silver_review"), timeout=300),
+             ("silver_session", "silver_price_observation", "silver_review", "silver_fx_rate", "silver_branch_cost"),
+             timeout=300),
         Node("gold_competitor_prices", nodes.gold_competitor_prices, ("silver_price_observation",), timeout=120),
+        Node("gold_market_margin", nodes.gold_market_margin,
+             ("gold_competitor_prices", "silver_fx_rate", "silver_branch_cost"), timeout=120),
     ]
     return {n.name: n for n in ns}
 

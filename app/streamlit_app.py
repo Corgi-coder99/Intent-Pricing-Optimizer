@@ -122,16 +122,16 @@ avg_comp = sum(prod["competitors"].values()) / len(prod["competitors"])
 g = st.columns(4)
 g[0].plotly_chart(gauge("Chuyển đổi dự đoán (%)", opt_conv * 100, 0, 100, ".1f",
                         [{"range": [0, 30], "color": "#f6d5d5"}, {"range": [30, 55], "color": "#fbe9c6"}, {"range": [55, 100], "color": "#d4eedf"}]),
-                  use_container_width=True)
+                  width="stretch")
 g[1].plotly_chart(gauge("AI Sentiment", sentiment, 0, 1, ".2f",
                         [{"range": [0, .45], "color": "#f6d5d5"}, {"range": [.45, .7], "color": "#fbe9c6"}, {"range": [.7, 1], "color": "#d4eedf"}], GREEN),
-                  use_container_width=True)
+                  width="stretch")
 g[2].plotly_chart(gauge("Giá đề xuất / đối thủ TB", opt_price / avg_comp, 0.6, 1.4, ".2f",
                         [{"range": [0.6, 0.95], "color": "#d4eedf"}, {"range": [0.95, 1.05], "color": "#fbe9c6"}, {"range": [1.05, 1.4], "color": "#f6d5d5"}], ORANGE),
-                  use_container_width=True)
+                  width="stretch")
 g[3].plotly_chart(gauge("Mức độ đau (pain severity)", severity, 0, 1, ".2f",
                         [{"range": [0, .3], "color": "#d4eedf"}, {"range": [.3, .6], "color": "#fbe9c6"}, {"range": [.6, 1], "color": "#f6d5d5"}], RED),
-                  use_container_width=True)
+                  width="stretch")
 
 st.markdown(f"<div class='agent'><b>🤖 Pricing Agent — {decision['strategy_name']}:</b> {decision['executive_summary']}</div>", unsafe_allow_html=True)
 st.write("")
@@ -150,7 +150,7 @@ with c1:
                       plot_bgcolor="#fff", bargap=0.15)
     fig.update_yaxes(title_text="Doanh thu ($)", secondary_y=False)
     fig.update_yaxes(title_text="Chuyển đổi (%)", secondary_y=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with c2:
     st.markdown("<div class='ptitle'>So sánh giá với đối thủ</div>", unsafe_allow_html=True)
     ct = analytics.competitor_table(prod["product_id"], opt_price)
@@ -158,7 +158,7 @@ with c2:
                  color=ct["seller"].eq("Giá đề xuất (ta)"), color_discrete_map={True: ORANGE, False: BLUE})
     fig.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10), showlegend=False, plot_bgcolor="#fff",
                       yaxis_title=None, xaxis_title="Giá ($)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ---------------- ROW: MAP + REGION BARS ----------------
 m1, m2 = st.columns([1, 1.2])
@@ -171,7 +171,7 @@ with m1:
     fig.update_geos(scope="asia", fitbounds="locations", showcountries=True, countrycolor="#c9d1dc",
                     showland=True, landcolor="#f4f6f9", showocean=True, oceancolor="#e8f1fa", resolution=50)
     fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title="Conv."))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with m2:
     st.markdown("<div class='ptitle'>Chuyển đổi &amp; sentiment theo khu vực</div>", unsafe_allow_html=True)
     rs = reg_df.sort_values("revenue")
@@ -182,7 +182,7 @@ with m2:
     fig.add_trace(go.Scatter(x=rs["region"], y=rs["avg_sentiment"] * 100, name="Sentiment ×100", mode="lines+markers",
                              line=dict(color=GREEN, width=2, dash="dot")), secondary_y=True)
     fig.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.12), plot_bgcolor="#fff")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ---------------- ROW: CATEGORY + COMPLAINTS + RAG ----------------
 r1, r2, r3 = st.columns([1.1, 0.9, 1.1])
@@ -194,14 +194,14 @@ with r1:
                  color="gap_pct", color_continuous_scale="RdYlGn_r")
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), coloraxis_showscale=False, plot_bgcolor="#fff",
                       xaxis_title=None, yaxis_title="Chênh lệch giá (%)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with r2:
     st.markdown("<div class='ptitle'>Cơ cấu phàn nàn của khách</div>", unsafe_allow_html=True)
     cb = analytics.complaint_breakdown(scope)
     fig = px.pie(cb, names="complaint_category", values="sessions", hole=0.45,
                  color_discrete_sequence=[GREEN, ORANGE, RED, BLUE])
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=-0.1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with r3:
     st.markdown("<div class='ptitle'>🔍 Voice-of-Customer (RAG)</div>", unsafe_allow_html=True)
     st.caption(f"Friction: `{', '.join(evidence['top_complaints']) or 'None'}`")
@@ -214,4 +214,4 @@ st.markdown("<div class='ptitle'>Bảng tổng hợp theo ngành hàng</div>", u
 show = all_cat.rename(columns={"category": "Ngành hàng", "sessions": "Phiên", "conversion_rate": "Chuyển đổi",
                                "avg_sentiment": "Sentiment TB", "avg_severity": "Pain TB", "revenue": "Doanh thu ($)"})
 st.dataframe(show.style.format({"Chuyển đổi": "{:.1%}", "Sentiment TB": "{:.2f}", "Pain TB": "{:.2f}", "Doanh thu ($)": "{:,.0f}"}),
-             use_container_width=True, hide_index=True)
+             width="stretch", hide_index=True)

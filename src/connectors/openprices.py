@@ -220,13 +220,20 @@ def parse_location(item: dict, countries: Iterable[str]) -> Optional[Dict]:
     return {"id": lid, "country": country, "price_count": count}
 
 
-class _Throttle:
-    """Nhịp gọi tối thiểu giữa hai request (dùng chung cho mọi lần gọi)."""
+class RequestBudgetExceeded(ConnectorError):
+    pass
 
-    def __init__(self, sleep: Callable[[float], None]):
-        self.sleep, self.last = sleep, 0.0
+
+class _Throttle:
+    """Nhịp gọi tối thiểu giữa hai request, kèm trần TỔNG số request (chống chạy vô hạn khi dữ liệu không đạt hạn mức)."""
+
+    def __init__(self, sleep: Callable[[float], None], max_requests: int = 10 ** 9):
+        self.sleep, self.last, self.count, self.max_requests = sleep, 0.0, 0, max_requests
 
     def wait(self) -> None:
+        if self.count >= self.max_requests:
+            raise RequestBudgetExceeded(f"Request budget of {self.max_requests} exhausted")
+        self.count += 1
         gap = MIN_INTERVAL_SECONDS - (time.monotonic() - self.last)
         if self.last and gap > 0:
             self.sleep(gap)
@@ -273,14 +280,16 @@ def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable
 def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_country_max: int = 1500,
                              per_location_max: int = 300, max_location_pages: int = 100,
                              fetch: Callable[[str], bytes] = http_get,
-                             sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
+                             sleep: Callable[[float], None] = time.sleep,
+                             log: Callable[[str], None] = lambda m: None, max_requests: int = 600,
+                             max_locations_per_country: int = 60) -> pd.DataFrame:
     """Vì API không lọc được theo quốc gia: (1) quét danh sách địa điểm và lọc quốc gia ở phía client,
     (2) tải giá theo từng location_id với hạn mức mỗi quốc gia và mỗi địa điểm (để một cửa hàng không áp đảo)."""
     countries = tuple(c.upper() for c in countries)
     bad = [c for c in countries if c not in ALLOWED_COUNTRIES]
     if bad:
         raise ValueError(f"Countries not allowed: {bad}")
-    th = _Throttle(sleep)
+    th = _Throttle(sleep, max_requests)
     locs: Dict[str, List[Dict]] = {c: [] for c in countries}
     for page in range(1, max_location_pages + 1):
         th.wait()
@@ -297,10 +306,19 @@ def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_c
             if loc:
                 locs[loc["country"]].append(loc)
 
+    log("locations found: " + ", ".join(f"{c}={len(v)}" for c, v in locs.items()))
     rows: List[Dict] = []
+    try:
+        _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_location_max, max_locations_per_country, log)
+    except RequestBudgetExceeded as exc:
+        log(f"STOPPED EARLY: {exc}; keeping {len(rows)} rows already collected")
+    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+
+
+def _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_location_max, max_locations_per_country, log):
     for country in countries:
         got = 0
-        for loc in sorted(locs[country], key=lambda x: -x["price_count"]):
+        for loc in sorted(locs[country], key=lambda x: -x["price_count"])[:max_locations_per_country]:
             taken = 0
             for page in range(1, -(-per_location_max // PAGE_SIZE) + 1):
                 if got >= per_country_max or taken >= per_location_max:
@@ -324,7 +342,7 @@ def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_c
                             break
             if got >= per_country_max:
                 break
-    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+        log(f"{country}: {got} rows")
 
 
 def write_to_landing(df: pd.DataFrame, landing: Path) -> Optional[Path]:
@@ -349,6 +367,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m src.connectors.openprices")
     ap.add_argument("--mode", choices=["by-location", "currency"], default="by-location")
     ap.add_argument("--per-country", type=int, default=1500)
+    ap.add_argument("--max-requests", type=int, default=600, help="hard cap on total HTTP requests")
     ap.add_argument("--currencies", nargs="+", default=["GBP", "EUR"], choices=list(ALLOWED_CURRENCIES))
     ap.add_argument("--countries", nargs="+", default=list(DEFAULT_COUNTRIES))
     ap.add_argument("--max-records", type=int, default=5000)
@@ -360,7 +379,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.mode == "by-location":
             if not (1 <= args.per_country <= 20_000):
                 ap.error("per-country must be 1..20000")
-            df = fetch_prices_by_location(args.countries, per_country_max=args.per_country)
+            df = fetch_prices_by_location(args.countries, per_country_max=args.per_country, max_requests=args.max_requests,
+                                          log=lambda m: print(m, file=sys.stderr, flush=True))
         else:
             df = fetch_prices(args.currencies, args.countries, args.max_records, args.max_pages)
     except (ConnectorError, ValueError) as exc:

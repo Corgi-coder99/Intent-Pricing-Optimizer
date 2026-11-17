@@ -440,3 +440,70 @@ def gold_competitor_prices(ctx: Context) -> Dict:
     atomic_write_parquet(g, ctx.layout.gold / "competitor_prices.parquet")
     return {"groups": len(g), "outliers_excluded": int(g["n_outliers"].sum()),
             "groups_with_2plus_stores": int((g["n_stores"] >= 2).sum())}
+
+
+def _vat_table(ctx: Context) -> pd.DataFrame:
+    """Bảng VAT tham chiếu. Ưu tiên file người dùng ghi đè ở <data>/reference/vat_rates.csv, nếu không dùng bản đóng gói."""
+    override = ctx.layout.root / "reference" / "vat_rates.csv"
+    path = override if override.exists() else Path(__file__).with_name("reference") / "vat_rates.csv"
+    return pd.read_csv(path, comment="#").assign(country=lambda d: d["country"].str.upper())
+
+
+def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFrame,
+                  costs: Optional[pd.DataFrame], home: str = "FR") -> pd.DataFrame:
+    """Giá thị trường đã trừ VAT và quy đổi về EUR theo quốc gia, kèm biên lợi nhuận nếu có giá vốn chi nhánh.
+    Giá thị trường (Open Prices) chủ yếu là thực phẩm nên dùng mức VAT thực phẩm giảm (cột reduced_rate_food)."""
+    rate = {"EUR": 1.0}
+    if fx is not None and len(fx):
+        latest = fx.sort_values("rate_date").groupby("currency").tail(1)
+        rate.update(dict(zip(latest["currency"], latest["eur_per_unit"])))
+    vat_rate = dict(zip(vat["country"], vat["reduced_rate_food"] / 100.0))
+
+    d = comp.copy()
+    d["vat_rate"] = d["country"].map(vat_rate)
+    d["eur_per_unit"] = d["currency"].map(rate)
+    d["status"] = "ok"
+    d.loc[d["eur_per_unit"].isna(), "status"] = "fx_missing"
+    d.loc[d["vat_rate"].isna() & (d["status"] == "ok"), "status"] = "vat_missing"
+    ok = d["status"] == "ok"
+    d["market_net_eur"] = (d["median_price"] / (1 + d["vat_rate"]) * d["eur_per_unit"]).where(ok)
+
+    if costs is not None and len(costs):
+        c = costs.copy()
+        c["cost_rate"] = c["currency"].map(rate)
+        c["unit_cost_eur"] = c["unit_cost"] * c["cost_rate"]
+        if "own_price" in c.columns:
+            c["own_vat"] = c["country"].map(vat_rate)
+            c["own_net_eur"] = c["own_price"] / (1 + c["own_vat"]) * c["cost_rate"]
+        else:
+            c["own_net_eur"] = float("nan")
+        d = d.merge(c[["product_code", "country", "unit_cost_eur", "own_net_eur"]], on=["product_code", "country"], how="left")
+    else:
+        d["unit_cost_eur"] = float("nan")
+        d["own_net_eur"] = float("nan")
+
+    d["margin_at_market_pct"] = ((d["market_net_eur"] - d["unit_cost_eur"]) / d["market_net_eur"] * 100).round(2)
+    d["own_margin_pct"] = ((d["own_net_eur"] - d["unit_cost_eur"]) / d["own_net_eur"] * 100).round(2)
+    d["own_vs_market_pct"] = ((d["own_net_eur"] / d["market_net_eur"] - 1) * 100).round(2)
+    home_price = d[d["country"] == home].groupby("product_code")["market_net_eur"].median()
+    d["vs_home_pct"] = ((d["market_net_eur"] / d["product_code"].map(home_price) - 1) * 100).round(2)
+    d["home_country"] = home
+    cols = ["product_code", "country", "currency", "n_obs", "n_stores", "confidence", "status", "vat_rate", "eur_per_unit",
+            "market_net_eur", "unit_cost_eur", "own_net_eur", "margin_at_market_pct", "own_margin_pct",
+            "own_vs_market_pct", "vs_home_pct", "home_country"]
+    return d[cols]
+
+
+def gold_market_margin(ctx: Context, home: str = "FR") -> Dict:
+    L = ctx.layout
+    comp_path = L.gold / "competitor_prices.parquet"
+    if not comp_path.exists():
+        return {"skipped": "no competitor prices yet"}
+    rd = lambda n: pd.read_parquet(L.silver / f"{n}.parquet") if (L.silver / f"{n}.parquet").exists() else None
+    fx, costs = rd("fx_rate"), rd("branch_cost")
+    out = market_margin(pd.read_parquet(comp_path), fx, _vat_table(ctx), costs, home)
+    atomic_write_parquet(out, L.gold / "market_margin.parquet")
+    multi = out.dropna(subset=["market_net_eur"]).groupby("product_code")["country"].nunique()
+    return {"rows": len(out), "fx_missing": int((out["status"] == "fx_missing").sum()),
+            "vat_missing": int((out["status"] == "vat_missing").sum()), "with_cost": int(out["unit_cost_eur"].notna().sum()),
+            "products_in_2plus_countries": int((multi >= 2).sum()), "had_fx_data": fx is not None}

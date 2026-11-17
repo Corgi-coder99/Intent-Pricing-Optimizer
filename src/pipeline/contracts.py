@@ -77,6 +77,33 @@ CONTRACTS: Dict[str, Contract] = {
         ],
         normalize=_price_norm,
     ),
+    # Tỷ giá: eur_per_unit = số EUR đổi được từ 1 đơn vị tiền tệ (GBP -> khoảng 1.17)
+    "fx_rate": Contract(
+        name="fx_rate",
+        key=["rate_date", "currency"],
+        required=["rate_date", "currency", "eur_per_unit"],
+        dtypes={"rate_date": "datetime", "currency": "str", "eur_per_unit": "float", "source": "str"},
+        checks=[
+            ("rate_out_of_range", lambda d: _ok((d.eur_per_unit > 0) & (d.eur_per_unit < 10_000))),
+            ("bad_currency", lambda d: _ok(d.currency.str.fullmatch(r"[A-Za-z]{3}"))),
+        ],
+        normalize=lambda df: df.assign(currency=df["currency"].str.upper()),
+    ),
+    # Giá vốn và giá bán của chi nhánh (dữ liệu NỘI BỘ của công ty); giá bán own_price là giá đã gồm VAT
+    "branch_cost": Contract(
+        name="branch_cost",
+        key=["product_code", "country"],
+        required=["product_code", "country", "unit_cost", "currency"],
+        dtypes={"product_code": "str", "country": "str", "currency": "str", "unit_cost": "float",
+                "own_price": "float", "product_name": "str"},
+        checks=[
+            ("cost_out_of_range", lambda d: _ok((d.unit_cost > 0) & (d.unit_cost < 1_000_000))),
+            ("own_price_out_of_range", lambda d: _ok((d.own_price > 0) | d.own_price.isna()) if "own_price" in d.columns
+             else pd.Series(True, index=d.index)),
+            ("bad_currency", lambda d: _ok(d.currency.str.fullmatch(r"[A-Za-z]{3}"))),
+        ],
+        normalize=lambda df: df.assign(currency=df["currency"].str.upper(), country=df["country"].str.upper()),
+    ),
     # Tombstone: yêu cầu xoá. record_key = các cột khoá của loại đó nối bằng "|" (số: định dạng %g, ngày: YYYY-MM-DD)
     "tombstone": Contract(
         name="tombstone",
