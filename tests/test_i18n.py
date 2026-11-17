@@ -77,3 +77,12 @@ def test_french_typography_uses_non_breaking_spaces():
     assert i18n.fr_typography("Sources : « x » 5 %") == "Sources\u00a0: «\u00a0x\u00a0» 5\u00a0%"
     assert i18n.t("cc_note_5", "fr").startswith("Sources\u00a0:")
     assert i18n.t("cc_note_5", "en").startswith("Sources: ")                    # English untouched
+
+
+def test_english_agent_text_has_no_raw_complaint_codes():
+    import pandas as pd
+    from src.agent_decision import PricingDecisionAgent
+    sim = pd.DataFrame({"offered_price": [90.0, 100.0], "discount_pct": [10.0, 0.0], "conversion_prob": [0.5, 0.4],
+                        "expected_revenue_per_100_visits": [4500.0, 4000.0]})
+    d = PricingDecisionAgent(use_llm=False).recommend_action("Widget", 100.0, sim, ["price_value", "shipping_packaging"], 0.4, lang="en")
+    assert "price_value" not in d["executive_summary"] and "shipping_packaging" not in d["executive_summary"]

@@ -1,7 +1,7 @@
 from typing import Dict, List
 import pandas as pd
 from src.config import OPENAI_API_KEY
-from src.i18n import fr_typography
+from src.i18n import COMPLAINT_EN, fr_typography
 
 STRATEGIES = {
     "defensive": "Defensive Conversion Recovery",
@@ -62,7 +62,7 @@ class PricingDecisionAgent:
             complaint_summary = (", ".join(COMPLAINT_LABELS_FR.get(c, c) for c in top_complaints)
                                  if top_complaints else "aucun frein majeur détecté")
         else:
-            complaint_summary = ", ".join(top_complaints) if top_complaints else "no major friction detected"
+            complaint_summary = ", ".join(COMPLAINT_EN.get(c, c) for c in top_complaints) if top_complaints else "no major friction detected"
 
         sent, conv, disc = number(current_sentiment, lang, 2), number(expected_conv, lang), number(abs(optimal_discount), lang)
         p_new, p_old, rev = money(optimal_price, lang), money(base_price, lang), money(expected_rev, lang)
