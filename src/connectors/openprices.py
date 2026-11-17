@@ -98,6 +98,16 @@ def build_location_prices_url(location_id: int, page: int, size: int = PAGE_SIZE
     return validate_url(f"https://{ALLOWED_HOST}{API_PATH}?{q}")
 
 
+def tls_context() -> ssl.SSLContext:
+    """Ngữ cảnh TLS LUÔN xác minh chứng chỉ và tên máy chủ. Dùng bộ chứng chỉ gốc certifi nếu có, vì kho chứng chỉ của
+    Windows có thể thiếu chứng chỉ trung gian (lỗi CERTIFICATE_VERIFY_FAILED). Không bao giờ tắt xác minh."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         raise ConnectorError("Redirects are not followed")
@@ -112,7 +122,7 @@ def read_capped(stream, limit: int = MAX_RESPONSE_BYTES) -> bytes:
 
 def http_get(url: str) -> bytes:
     validate_url(url)
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=tls_context()))
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with opener.open(req, timeout=TIMEOUT_SECONDS) as resp:
         validate_url(resp.geturl().split("?")[0])

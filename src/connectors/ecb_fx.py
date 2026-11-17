@@ -12,8 +12,8 @@ import hashlib
 import io
 import os
 import re
-import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,12 +22,13 @@ from typing import Callable, Dict, Iterable, List, Optional
 
 import pandas as pd
 
-from src.connectors.openprices import ConnectorError, _NoRedirect, read_capped
+from src.connectors.openprices import ConnectorError, _NoRedirect, read_capped, tls_context
 
 ALLOWED_HOST = "data-api.ecb.europa.eu"
 CURRENCIES = ("GBP", "SEK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN")
 MAX_BYTES = 256 * 1024
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 30
+MAX_ATTEMPTS = 3
 USER_AGENT = "portfolio-research-client/1.0"
 OUTPUT_COLUMNS = ["rate_date", "currency", "eur_per_unit", "source"]
 
@@ -51,7 +52,7 @@ def validate_url(url: str) -> str:
 
 def http_get(url: str) -> bytes:
     validate_url(url)
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=tls_context()))
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/csv"})
     with opener.open(req, timeout=TIMEOUT_SECONDS) as resp:
         validate_url(resp.geturl())
@@ -81,13 +82,22 @@ def parse_rates(payload: bytes) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
 
-def fetch_rates(currencies: Iterable[str] = CURRENCIES, fetch: Callable[[str], bytes] = http_get) -> pd.DataFrame:
-    try:
-        return parse_rates(fetch(build_url(currencies)))
-    except urllib.error.HTTPError as exc:
-        raise ConnectorError(f"HTTP {exc.code}")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise ConnectorError(f"Network error: {type(exc).__name__}")
+def fetch_rates(currencies: Iterable[str] = CURRENCIES, fetch: Callable[[str], bytes] = http_get,
+                sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
+    """Thử lại tối đa MAX_ATTEMPTS lần khi mạng chậm/lỗi tạm thời (5xx, timeout); lỗi 4xx và dữ liệu hỏng thì dừng ngay."""
+    url, last = build_url(currencies), None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return parse_rates(fetch(url))
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code != 429:
+                raise ConnectorError(f"HTTP {exc.code}")
+            last = f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last = type(exc).__name__
+        if attempt < MAX_ATTEMPTS - 1:
+            sleep(2.0 ** (attempt + 1))
+    raise ConnectorError(f"Network error after {MAX_ATTEMPTS} attempts: {last}")
 
 
 def write_to_landing(df: pd.DataFrame, landing: Path) -> Path:

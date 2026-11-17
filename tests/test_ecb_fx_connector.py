@@ -61,3 +61,31 @@ def test_landing_file_is_content_addressed(tmp_path):
     df = ecb_fx.parse_rates(SAMPLE.encode())
     a = ecb_fx.write_to_landing(df, tmp_path)
     assert ecb_fx.write_to_landing(df, tmp_path) == a and len(list(tmp_path.iterdir())) == 1
+
+
+def test_tls_verification_is_never_disabled():
+    import ssl
+    from src.connectors.openprices import tls_context
+    ctx = tls_context()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is True
+
+
+def test_transient_failures_are_retried_but_client_errors_are_not():
+    calls = {"n": 0}
+
+    def flaky(url):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise TimeoutError()
+        return SAMPLE.encode()
+
+    assert len(ecb_fx.fetch_rates(["GBP", "SEK"], fetch=flaky, sleep=lambda s: None)) == 2 and calls["n"] == 3
+
+    def forbidden(url):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url, 403, "no", {}, None)
+
+    calls["n"] = 0
+    with pytest.raises(ConnectorError):
+        ecb_fx.fetch_rates(["GBP"], fetch=forbidden, sleep=lambda s: None)
+    assert calls["n"] == 1

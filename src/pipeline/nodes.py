@@ -450,13 +450,15 @@ def _vat_table(ctx: Context) -> pd.DataFrame:
 
 
 def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFrame,
-                  costs: Optional[pd.DataFrame], home: str = "FR") -> pd.DataFrame:
+                  costs: Optional[pd.DataFrame], home: str = "FR", max_fx_age_days: int = 10) -> pd.DataFrame:
     """Giá thị trường đã trừ VAT và quy đổi về EUR theo quốc gia, kèm biên lợi nhuận nếu có giá vốn chi nhánh.
     Giá thị trường (Open Prices) chủ yếu là thực phẩm nên dùng mức VAT thực phẩm giảm (cột reduced_rate_food)."""
     rate = {"EUR": 1.0}
     if fx is not None and len(fx):
         latest = fx.sort_values("rate_date").groupby("currency").tail(1)
-        rate.update(dict(zip(latest["currency"], latest["eur_per_unit"])))
+        newest = latest["rate_date"].max()
+        fresh = latest[(newest - latest["rate_date"]) <= pd.Timedelta(days=max_fx_age_days)]   # bỏ tỷ giá cũ (vd. ngừng công bố)
+        rate.update(dict(zip(fresh["currency"], fresh["eur_per_unit"])))
     vat_rate = dict(zip(vat["country"], vat["reduced_rate_food"] / 100.0))
 
     d = comp.copy()

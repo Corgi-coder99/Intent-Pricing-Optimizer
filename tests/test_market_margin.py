@@ -82,3 +82,10 @@ def test_pure_function_handles_no_fx_no_cost():
     vat = pd.DataFrame([{"country": "FR", "reduced_rate_food": 5.5}])
     out = market_margin(comp, None, vat, None)
     assert out.loc[0, "market_net_eur"] == pytest.approx(1.0) and pd.isna(out.loc[0, "margin_at_market_pct"])
+
+
+def test_stale_fx_rate_is_ignored_not_used(layout):
+    fx = [{"rate_date": "2025-12-31", "currency": "GBP", "eur_per_unit": 1.10},
+          {"rate_date": "2026-11-17", "currency": "SEK", "eur_per_unit": 0.09}]
+    _, m = build(layout, FR_ROWS + GB_ROWS, fx=fx)
+    assert m.loc["GB", "status"] == "fx_missing" and pd.isna(m.loc["GB", "market_net_eur"])
