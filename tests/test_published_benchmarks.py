@@ -39,3 +39,19 @@ def test_no_scenario_without_benchmark_or_home_price():
     assert market_margin(df, None, VAT, None)["scenario_margin_pct"].isna().all()
     only_de = pd.DataFrame([comp("DE", 12.0)])
     assert market_margin(only_de, None, VAT, None, benchmark_gross_margin_pct=40.0)["scenario_margin_pct"].isna().all()
+
+
+def test_sector_margin_column_and_eurostat_anchor_are_used_when_available():
+    df = pd.DataFrame([comp("FR", 10.0), comp("DE", 12.0)])
+    out = market_margin(df, None, VAT, None, home="FR", benchmark_gross_margin_pct=21.02,
+                        sector_gross_margin_pct={"FR": 21.02, "DE": 23.41}).set_index("country")
+    assert out.loc["DE", "sector_gross_margin_pct"] == 23.41
+    assert out.loc["FR", "scenario_margin_pct"] == pytest.approx(21.02)
+
+
+def test_eurostat_reference_file_matches_its_own_arithmetic():
+    ref = Path(__file__).resolve().parent.parent / "src" / "pipeline" / "reference" / "eurostat_retail_margin.csv"
+    t = pd.read_csv(ref, comment="#")
+    assert (t["gross_margin_pct"] - t["gross_margin_m_eur"] / t["turnover_m_eur"] * 100).abs().max() < 0.01
+    assert (t["year"] <= 2019).all() and set(t["nace_r2"]) == {"G47", "G4711"}
+    assert {"FR", "DE", "GB", "IE", "ES", "IT", "NL", "BE"} <= set(t["country"])

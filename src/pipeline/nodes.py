@@ -458,9 +458,20 @@ def _benchmark_gross_margin(ctx: Context) -> Optional[float]:
     return float(v.iloc[0]) if len(v) else None
 
 
+def _sector_margins() -> Dict[str, float]:
+    """Biên gộp ngành siêu thị/thực phẩm (NACE G47.11) theo quốc gia, nguồn Eurostat (xem src/connectors/eurostat_retail.py)."""
+    path = Path(__file__).with_name("reference") / "eurostat_retail_margin.csv"
+    if not path.exists():
+        return {}
+    t = pd.read_csv(path, comment="#")
+    t = t[t["nace_r2"] == "G4711"]
+    return dict(zip(t["country"], t["gross_margin_pct"]))
+
+
 def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFrame,
                   costs: Optional[pd.DataFrame], home: str = "FR", max_fx_age_days: int = 10,
-                  benchmark_gross_margin_pct: Optional[float] = None) -> pd.DataFrame:
+                  benchmark_gross_margin_pct: Optional[float] = None,
+                  sector_gross_margin_pct: Optional[Dict[str, float]] = None) -> pd.DataFrame:
     """Giá thị trường đã trừ VAT và quy đổi về EUR theo quốc gia, kèm biên lợi nhuận nếu có giá vốn chi nhánh.
     Giá thị trường (Open Prices) chủ yếu là thực phẩm nên dùng mức VAT thực phẩm giảm (cột reduced_rate_food)."""
     rate = {"EUR": 1.0}
@@ -509,9 +520,11 @@ def market_margin(comp: pd.DataFrame, fx: Optional[pd.DataFrame], vat: pd.DataFr
     else:
         d["scenario_unit_cost_eur"] = float("nan")
         d["scenario_margin_pct"] = float("nan")
+    d["sector_gross_margin_pct"] = d["country"].map(sector_gross_margin_pct or {})
     cols = ["product_code", "country", "currency", "n_obs", "n_stores", "confidence", "status", "vat_rate", "eur_per_unit",
             "market_net_eur", "unit_cost_eur", "own_net_eur", "margin_at_market_pct", "own_margin_pct",
-            "own_vs_market_pct", "vs_home_pct", "home_country", "scenario_unit_cost_eur", "scenario_margin_pct"]
+            "own_vs_market_pct", "vs_home_pct", "home_country", "scenario_unit_cost_eur", "scenario_margin_pct",
+            "sector_gross_margin_pct"]
     return d[cols]
 
 
@@ -522,10 +535,17 @@ def gold_market_margin(ctx: Context, home: str = "FR") -> Dict:
         return {"skipped": "no competitor prices yet"}
     rd = lambda n: pd.read_parquet(L.silver / f"{n}.parquet") if (L.silver / f"{n}.parquet").exists() else None
     fx, costs = rd("fx_rate"), rd("branch_cost")
+    sector = _sector_margins()
+    anchor = sector.get(home)                                       # ưu tiên số ngành thực phẩm của nước nhà (Eurostat)
+    anchor_src = f"eurostat:{home} G4711" if anchor is not None else "zalando:2024"
+    if anchor is None:
+        anchor = _benchmark_gross_margin(ctx)
     out = market_margin(pd.read_parquet(comp_path), fx, _vat_table(ctx), costs, home,
-                        benchmark_gross_margin_pct=_benchmark_gross_margin(ctx))
+                        benchmark_gross_margin_pct=anchor, sector_gross_margin_pct=sector)
+    out["scenario_anchor"] = anchor_src if anchor is not None else None
     atomic_write_parquet(out, L.gold / "market_margin.parquet")
     multi = out.dropna(subset=["market_net_eur"]).groupby("product_code")["country"].nunique()
     return {"rows": len(out), "fx_missing": int((out["status"] == "fx_missing").sum()),
             "vat_missing": int((out["status"] == "vat_missing").sum()), "with_cost": int(out["unit_cost_eur"].notna().sum()),
-            "products_in_2plus_countries": int((multi >= 2).sum()), "had_fx_data": fx is not None}
+            "products_in_2plus_countries": int((multi >= 2).sum()), "had_fx_data": fx is not None,
+            "scenario_anchor": anchor_src if anchor is not None else None}
