@@ -1,6 +1,6 @@
 # Intent-Driven Dynamic Pricing & Conversion Optimizer
 
-[Français](README.fr.md)
+[Français](README.fr.md) · **[Live demo](https://intent-pricing-optimizer.streamlit.app/)** (free hosting: the first visit after a quiet period can take a minute to wake up)
 
 An end-to-end **AI + Data Science + E-commerce** project: customer-review signals (NLP/RAG) feed a price-elasticity model (LightGBM),
 which feeds a pricing agent that recommends a price and a strategy. It comes with a bilingual (English/French) BI dashboard, a REST API,

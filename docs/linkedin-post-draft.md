@@ -33,6 +33,7 @@ Le code est dans le premier commentaire.
 
 ## First comment (English / Français)
 
+Live demo: https://intent-pricing-optimizer.streamlit.app/
 Code and documentation: https://github.com/Corgi-coder99/Intent-Pricing-Optimizer
 Data: Open Food Facts contributors (ODbL), ECB, Eurostat.
 

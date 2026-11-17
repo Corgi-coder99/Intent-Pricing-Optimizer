@@ -1,6 +1,6 @@
 # Optimiseur dynamique de prix et de conversion piloté par l'intention
 
-[English](README.md)
+[English](README.md) · **[Démo en ligne](https://intent-pricing-optimizer.streamlit.app/)** (hébergement gratuit : la première visite après une période d'inactivité peut prendre une minute)
 
 Un projet de bout en bout **IA + Data Science + E-commerce** : les signaux issus des avis clients (NLP/RAG) nourrissent un modèle d'élasticité-prix
 (LightGBM), qui pilote un agent de prix recommandant un prix et une stratégie. Le projet comprend un tableau de bord BI bilingue (anglais/français),
