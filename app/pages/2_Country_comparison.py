@@ -54,18 +54,20 @@ market, names, coords, gbp = data["market"], data["names"], data["coords"], data
 home = str(market["home_country"].iloc[0]) if len(market) else "FR"
 
 f1, f2 = st.columns([1.5, 2])
-only_ok = f1.checkbox(t("cc_reliable", lang), value=False, help=t("cc_reliable_help", lang))
+only_ok = f1.checkbox(t("cc_reliable", lang), value=False, help=t("cc_reliable_help", lang), key="cc_only_ok")
 all_countries = sorted(c for c in market["country"].unique() if c != home)
-picked = f2.multiselect(t("cc_countries", lang, home=home), all_countries, default=all_countries)
+picked = f2.multiselect(t("cc_countries", lang, home=home), all_countries, default=all_countries, key="cc_picked")
 
 summary = market_view.country_summary(market, only_ok, picked)
 codes = market_view.comparable_products(market, only_ok, picked)
 scope = market[market["country"].isin(set(picked) | {home})]                     # KPIs follow the country selection
-ok_share = (scope["confidence"] == "ok").mean() * 100 if len(scope) else 0
+ok_share = (scope["confidence"] == "ok").mean() * 100 if len(scope) else 0       # data-quality indicator (independent of the checkbox)
+shown_rows = scope[scope["confidence"] == "ok"] if only_ok else scope             # "Countries with data" follows the reliability filter
+n_compared = market_view.compared_product_count(market, only_ok, picked)
 
 k = st.columns(4)
-k[0].markdown(kpi(t("cc_kpi_products", lang), f"{len(codes):,}", NAVY), unsafe_allow_html=True)
-k[1].markdown(kpi(t("cc_kpi_countries", lang), f"{scope['country'].nunique()}", BLUE), unsafe_allow_html=True)
+k[0].markdown(kpi(t("cc_kpi_products", lang, home=home), f"{n_compared:,}", NAVY), unsafe_allow_html=True)
+k[1].markdown(kpi(t("cc_kpi_countries", lang), f"{shown_rows['country'].nunique()}", BLUE), unsafe_allow_html=True)
 k[2].markdown(kpi(t("cc_kpi_reliable", lang), f"{ok_share:.0f}" + (" %" if lang == "fr" else "%"),
                   ORANGE if ok_share < 50 else GREEN), unsafe_allow_html=True)
 if gbp:

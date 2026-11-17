@@ -68,7 +68,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
     "cc_reliable": {"en": "Reliable data only", "fr": "Données fiables uniquement"},
     "cc_reliable_help": {"en": "Keep rows with ≥2 stores and ≥3 observations", "fr": "Garder les lignes avec au moins 2 magasins et 3 observations"},
     "cc_countries": {"en": "Countries compared with {home}", "fr": "Pays comparés à {home}"},
-    "cc_kpi_products": {"en": "Comparable products (≥2 countries)", "fr": "Produits comparables (≥2 pays)"},
+    "cc_kpi_products": {"en": "Products comparable with {home}", "fr": "Produits comparables avec {home}"},
     "cc_kpi_countries": {"en": "Countries with data", "fr": "Pays avec données"},
     "cc_kpi_reliable": {"en": "Reliable rows", "fr": "Lignes fiables"},
     "cc_kpi_fx": {"en": "1 GBP = EUR (ECB {date})", "fr": "1 GBP = EUR (BCE {date})"},

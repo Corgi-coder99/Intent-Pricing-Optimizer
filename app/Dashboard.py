@@ -66,7 +66,7 @@ def gauge(title, value, lo, hi, fmt, steps, color=BLUE):
         title={"text": title, "font": {"size": 12}},
         gauge={"axis": {"range": [lo, hi]}, "bar": {"color": color}, "steps": steps},
     ))
-    fig.update_layout(height=190, margin=dict(l=28, r=28, t=45, b=5))
+    fig.update_layout(height=190, margin=dict(l=30, r=38, t=45, b=5))
     if lang == "fr":
         fig.update_layout(separators=", ")      # decimal comma
     return fig
@@ -98,14 +98,14 @@ st.markdown(f"<h3 style='color:{NAVY};margin:0'>📈 {t('title', lang)}</h3>", u
 st.caption(t("subtitle", lang))
 
 f1, f2, f3, f4 = st.columns(4)
-category = f1.selectbox(t("category", lang), [ALL] + sorted(df["category"].unique().tolist()),
+category = f1.selectbox(t("category", lang), [ALL] + sorted(df["category"].unique().tolist()), key="f_category",
                         format_func=lambda c: t("all", lang) if c == ALL else category_label(c, lang))
 prods = [p for p in PRODUCT_CATALOG if category == ALL or p["category"] == category]
-prod_name = f2.selectbox(t("product", lang), [p["product_name"] for p in prods])
+prod_name = f2.selectbox(t("product", lang), [p["product_name"] for p in prods], key="f_product")
 prod = next(p for p in prods if p["product_name"] == prod_name)
-region = f3.selectbox(t("region", lang), [ALL] + sorted(df["region"].unique().tolist()),
+region = f3.selectbox(t("region", lang), [ALL] + sorted(df["region"].unique().tolist()), key="f_region",
                       format_func=lambda r: t("all", lang) if r == ALL else r)
-comp_name = f4.selectbox(t("competitor", lang), list(prod["competitors"].keys()))
+comp_name = f4.selectbox(t("competitor", lang), list(prod["competitors"].keys()), key="f_comp")
 
 with st.expander(t("market_sim", lang), expanded=False):
     s1, s2, s3 = st.columns(3)
@@ -228,6 +228,7 @@ with r2:
     cb = analytics.complaint_breakdown(scope)
     cb["label"] = cb["complaint_category"].map(lambda c: complaint_label(c, lang))
     fig = px.pie(cb, names="label", values="sessions", hole=0.45, color_discrete_sequence=[GREEN, ORANGE, RED, BLUE])
+    fig.update_traces(text=[pct(v / cb["sessions"].sum() * 100) for v in cb["sessions"]], textinfo="text")   # localized percentages
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=-0.1))
     show(fig)
 with r3:
@@ -243,9 +244,13 @@ with r3:
                        f"{t('sentiment', lang)} `{item['sentiment_score']:.2f}`")
 
 st.markdown(f"<div class='ptitle'>{t('summary_table', lang)}</div>", unsafe_allow_html=True)
-show = all_cat.assign(category=all_cat["category"].map(lambda c: category_label(c, lang))).rename(columns={
+show = all_cat.assign(
+    category=all_cat["category"].map(lambda c: category_label(c, lang)),
+    sessions=all_cat["sessions"].map(lambda v: f"{int(v):,}".replace(",", "\u202f" if lang == "fr" else ",")),
+    conversion_rate=all_cat["conversion_rate"].map(lambda v: pct(v * 100)),
+    avg_sentiment=all_cat["avg_sentiment"].map(lambda v: number(v, lang, 2)),
+    avg_severity=all_cat["avg_severity"].map(lambda v: number(v, lang, 2)),
+    revenue=all_cat["revenue"].map(lambda v: money(v, lang, 0))).rename(columns={
     "category": t("col_category", lang), "sessions": t("col_sessions", lang), "conversion_rate": t("col_conversion", lang),
     "avg_sentiment": t("col_sentiment", lang), "avg_severity": t("col_pain", lang), "revenue": t("col_revenue", lang)})
-st.dataframe(show.style.format({t("col_conversion", lang): "{:.1%}", t("col_sentiment", lang): "{:.2f}",
-                                t("col_pain", lang): "{:.2f}", t("col_revenue", lang): "{:,.0f}"}),
-             width="stretch", hide_index=True)
+st.dataframe(show, width="stretch", hide_index=True)

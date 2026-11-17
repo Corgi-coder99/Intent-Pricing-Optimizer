@@ -37,9 +37,8 @@ def load_market(root: Optional[Path] = None) -> Optional[Dict[str, object]]:
     return {"market": market, "names": names, "coords": coords, "gbp": gbp}
 
 
-def country_summary(market: pd.DataFrame, only_confident: bool = False, countries: Optional[List[str]] = None) -> pd.DataFrame:
-    """Per country (excluding the home country): number of comparable products, median price gap vs home, median scenario margin,
-    sector margin (Eurostat)."""
+def _compared_rows(market: pd.DataFrame, only_confident: bool, countries: Optional[List[str]]) -> pd.DataFrame:
+    """Rows of non-home countries that can be compared with the home country (valid price and a valid price gap)."""
     d = market[(market["status"] == "ok") & (market["country"] != market["home_country"])].dropna(subset=["vs_home_pct"])
     if only_confident:
         # both the compared row AND the home-country row must be reliable
@@ -48,6 +47,18 @@ def country_summary(market: pd.DataFrame, only_confident: bool = False, countrie
         d = d[(d["confidence"] == "ok") & d["product_code"].isin(home_ok)]
     if countries:
         d = d[d["country"].isin(countries)]
+    return d
+
+
+def compared_product_count(market: pd.DataFrame, only_confident: bool = False, countries: Optional[List[str]] = None) -> int:
+    """Products that appear in the country comparison chart (same definition as `country_summary`)."""
+    return int(_compared_rows(market, only_confident, countries)["product_code"].nunique())
+
+
+def country_summary(market: pd.DataFrame, only_confident: bool = False, countries: Optional[List[str]] = None) -> pd.DataFrame:
+    """Per country (excluding the home country): number of comparable products, median price gap vs home, median scenario margin,
+    sector margin (Eurostat)."""
+    d = _compared_rows(market, only_confident, countries)
     if d.empty:
         return pd.DataFrame(columns=["country", "n_products", "median_vs_home_pct", "median_scenario_margin_pct",
                                      "sector_gross_margin_pct"])

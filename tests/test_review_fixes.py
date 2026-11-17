@@ -177,3 +177,14 @@ def test_valid_key_still_works_after_too_many_wrong_keys_from_the_same_ip(api_en
         assert c.post("/v1/review/analyze", json={"text": "x"}, headers={"X-API-Key": "nope.nope"}).status_code == 429
         assert c.post("/v1/review/analyze", json={"text": "x"}, headers={"X-API-Key": good}).status_code == 200
         assert c.get("/health").status_code == 200
+
+
+def test_kpi_count_matches_what_the_country_chart_compares():
+    from src.market_view import compared_product_count
+    m = pd.DataFrame([_row("A", "FR", vs=0), _row("A", "DE"), _row("A", "IT"),
+                      _row("B", "DE", vs=None), _row("B", "IT", vs=None),                 # B has no home-country row, so no price gap
+                      _row("C", "FR", "low", 0), _row("C", "DE", "ok")])
+    assert compared_product_count(m) == 2                                                  # A and C (B cannot be compared with FR)
+    assert compared_product_count(m, only_confident=True) == 1                             # C's home row is not reliable
+    assert compared_product_count(m, countries=["IT"]) == 1
+    assert country_summary(m)["n_products"].sum() == 3                                     # DE: A and C, IT: A (B is never compared)
