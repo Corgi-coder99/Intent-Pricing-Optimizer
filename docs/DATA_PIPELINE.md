@@ -31,8 +31,8 @@ A file that matches no contract goes to `bronze/_unclassified` and never reaches
 - The DAG is checked with Kahn's algorithm before any data is touched; a cycle or missing dependency raises `CycleError`.
 - Each step runs at most once per run; a failed or timed-out step is not retried and its dependents are skipped.
 - Independent steps (the silver steps, some gold steps) run in parallel in a thread pool.
-- A pipeline-wide lock (`state/pipeline.lock`, created with O_EXCL): a second run waits (`--wait`) or exits with code 2.
-- The lock owner sends a heartbeat every 5 s; the 600 s TTL only reclaims locks of dead processes.
+- A pipeline-wide OS-level file lock (`state/pipeline.lock`, msvcrt on Windows / fcntl elsewhere): a second run waits (`--wait`) or exits with code 2.
+  The operating system frees the lock when its owner dies, so there is no stale-lock timeout and no reclaim race.
 - Gold steps are skipped when the fingerprint of their inputs (including the extractor source code) has not changed.
 
 ## Per-step timeouts (enforced)
@@ -78,6 +78,9 @@ Use `--no-isolate` for speed (timeouts are then not enforced).
 Tip for sources writing large files: write to `*.tmp`, then rename to `.csv`.
 
 ## Remaining limits
+- Deduplication is by content hash: re-dropping a file whose content equals an EARLIER file is ignored, even if later files changed those rows
+  (v1 -> v2 -> v1). To revert, change the content (e.g. add a row) or send tombstones.
+- Processed batches and tombstones are tracked in ONE atomic file per type (`state/silver_<type>_state.json`); the old two-file layout is still read.
 - Silver and gold use in-memory pandas; the practical ceiling is a few million rows. Beyond that, move to DuckDB/Spark.
 - Application order follows ingestion order; within one run, files are sorted by name.
 - There is no timeout per chunk inside a step (only per whole step).

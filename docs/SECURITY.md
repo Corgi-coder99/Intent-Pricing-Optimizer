@@ -25,7 +25,8 @@ The old `lgbm_pricing.pkl` is no longer loaded and can be deleted.
 - **One key per person:** `python -m src.auth create --name alice --role user` (the key is shown once; only its SHA-256 hash is stored).
   Role `user` calls predictions; `admin` also calls `/v1/admin/reload`. Disable with `python -m src.auth disable --id <id>`.
   The `API_KEY` environment variable is a shared admin key (use it for operations only).
-- **A key store that ever held a key never falls back to open mode**, even if every key is disabled.
+- **A key store that ever held a key never falls back to open mode**: even if every key is disabled, or the key file is deleted or emptied
+  (a marker file records that a key was created), nobody can authenticate until a new key is created. It never silently opens the API.
 - **No clashes:** prediction endpoints write no shared state (they only read the model), so concurrent callers never overwrite each other.
   Rate limits are counted PER KEY (120/min), so one heavy user cannot starve the others; the per-IP limit is high (600/min)
   because an office usually shares one IP.
@@ -35,13 +36,14 @@ The old `lgbm_pricing.pkl` is no longer loaded and can be deleted.
   it NEVER records request content. Every response carries an `X-Request-ID` header for tracing.
 - **Reverse proxy:** `X-Forwarded-For` is trusted only when `TRUST_PROXY=1` (the last entry added by the proxy, which must be a
   valid IP); by default the header is ignored, so spoofing it cannot evade the rate limit.
-- **Running the pipeline from several machines on one shared network folder is NOT supported:** the run lock relies on atomic
-  file creation, which is unreliable on some network shares. Give each machine its own `data/`, or run the pipeline on one machine only.
+- **Running the pipeline from several machines on one shared network folder is NOT supported:** the run lock is an OS-level file lock
+  (released automatically if the owning process dies; no stale-lock timeout), which is unreliable on some network shares. Give each machine its own `data/`, or run the pipeline on one machine only.
 
 ## API
 Constant-time key comparison · `REQUIRE_API_KEY=1` (set in Docker) answers 503 when no key is configured, never open ·
-brute-force protection (10 wrong keys/minute/IP) · 64 KB body limit · `nosniff`, `no-store`, `X-Frame-Options` headers ·
-Pydantic input validation · Docker runs as a non-root user.
+wrong-key throttling (after 10 wrong keys/minute from one IP, further WRONG keys get 429; a valid key is never locked out, so an attacker
+sharing an IP or reverse proxy cannot deny service to real users) · 64 KB body limit, and requests without a Content-Length are refused (411) · `nosniff`, `no-store`, `X-Frame-Options` headers ·
+Pydantic input validation · unhandled server errors still return the security headers and write an audit record · Docker runs as a non-root user.
 
 ## Dashboard
 Streamlit listens on `127.0.0.1` only (`.streamlit/config.toml`); its default is every network interface and the dashboard has no

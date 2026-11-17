@@ -56,5 +56,6 @@ Docker: `docker build -t pricing-api . && docker run -p 8000:8000 -e API_KEY=...
 | `docs/REAL_DATA_VALIDATION.md` | price elasticity: simulation vs real transactions; evaluation of candidate sources |
 
 ## Validating against real data
+`python -m src.review_validation --file reviews.csv --text-col <col> --rating-col <col>` measures how well the review reader agrees with star ratings (needs a real review CSV).
 `python -m src.real_elasticity` estimates price elasticity from real transactions (Online Retail II, CC BY 4.0) and compares it with the simulator.
 It reads the warehouse of the sibling `online-retail-insights` project (set `ONLINE_RETAIL_DB` to point elsewhere).

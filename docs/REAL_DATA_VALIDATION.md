@@ -38,7 +38,10 @@ quality defect −3.1; shipping −2.4). The real data above has no reviews, so 
 | Women's E-Commerce Clothing Reviews (Kaggle, CC0 per the Kaggle page) | **Candidate, not used** | Needs a Kaggle account to download; the licence is only confirmed via an aggregator page. If you download it yourself, you can drop it into `data/landing/` after renaming columns to the `review` contract |
 | Amazon (selling fees, International segment results) | **Not used** | Could not be verified at the primary source (see `docs/DATA_SOURCES.md`) |
 
-**Tier 1 (review reading) is still not validated on real reviews.** The classifier only knows about 20 English keywords; treat it as an illustration
-until its accuracy is measured on real reviews with a clean licence.
+**Tier 1 (review reading) is still not validated on real reviews.** The classifier only knows about 20 English keywords and has no negation
+handling ("not overpriced" is scored like "overpriced"); treat it as an illustration until its accuracy is measured on real reviews with a clean licence.
+The measuring tool exists: `python -m src.review_validation --file reviews.csv --text-col <col> --rating-col <col>` reports polarity accuracy,
+a confusion matrix, coverage and a verdict, without ever printing review text (written by Codex, task T-051).
 A bug caught by browser testing: the sentence "Packaging felt cheap and protective seal was broken" was mislabelled `quality_defect`
-(it used the last matching category); it now picks the category with the most keyword hits.
+(it used the last matching category); it now picks the category with the most keyword hits. Its own test then exposed two more substring bugs
+("fast" matched inside "faster", "late" inside "chocolate"); keywords are now matched as whole words and the ambiguous "fast" was dropped.
