@@ -88,14 +88,19 @@ else:
         s = summary.sort_values("median_vs_home_pct")
         fig = px.bar(s, x="country", y="median_vs_home_pct", text=s["n_products"].map(lambda n: f"n={n}"),
                      color="median_vs_home_pct", color_continuous_scale="RdYlGn_r", color_continuous_midpoint=0)
+        fig.update_traces(customdata=s[["n_products"]].to_numpy(),
+                          hovertemplate="<b>%{x}</b><br>" + t("cc_median_gap", lang) + ": %{y:+.1f}<br>"
+                          + t("cc_n_products", lang) + ": %{customdata[0]}<extra></extra>")
         fig.update_layout(height=330, margin=dict(l=10, r=10, t=10, b=10), coloraxis_showscale=False, plot_bgcolor="#fff",
                           xaxis_title=None, yaxis_title=t("cc_gap_axis", lang, home=home))
         show(fig)
     with right:
         st.markdown(f"<div class='ptitle'>{t('cc_margin_title', lang)}</div>", unsafe_allow_html=True)
         fig = go.Figure()
-        fig.add_bar(x=summary["country"], y=summary["median_scenario_margin_pct"], name=t("cc_scenario", lang), marker_color=BLUE)
-        fig.add_bar(x=summary["country"], y=summary["sector_gross_margin_pct"], name=t("cc_sector", lang), marker_color=ORANGE)
+        fig.add_bar(x=summary["country"], y=summary["median_scenario_margin_pct"], name=t("cc_scenario", lang), marker_color=BLUE,
+                    hovertemplate="%{x}<br>" + t("cc_scenario", lang) + ": %{y:.1f}<extra></extra>")
+        fig.add_bar(x=summary["country"], y=summary["sector_gross_margin_pct"], name=t("cc_sector", lang), marker_color=ORANGE,
+                    hovertemplate="%{x}<br>" + t("cc_sector", lang) + ": %{y:.1f}<extra></extra>")
         fig.update_layout(height=330, margin=dict(l=10, r=10, t=80, b=10), barmode="group", plot_bgcolor="#fff",
                           legend=dict(orientation="h", yanchor="bottom", y=1.02), yaxis_title=t("cc_pct_revenue", lang))
         show(fig)
@@ -109,6 +114,9 @@ else:
                                  hover_data={"lat": False, "lon": False, "n_products": True, "median_vs_home_pct": ":.1f"},
                                  labels={"country": t("cc_country", lang), "n_products": t("cc_n_products", lang),
                                          "median_vs_home_pct": t("cc_median_gap", lang)})
+            fig.update_traces(customdata=mp[["country", "n_products", "median_vs_home_pct"]].to_numpy(),
+                              hovertemplate="<b>%{customdata[0]}</b><br>" + t("cc_n_products", lang)
+                              + ": %{customdata[1]}<br>" + t("cc_median_gap", lang) + ": %{customdata[2]:+.1f}<extra></extra>")
             fig.update_geos(scope="europe", showcountries=True, countrycolor="#c9d1dc", showland=True, landcolor="#f4f6f9",
                             showocean=True, oceancolor="#e8f1fa", lataxis_range=[34, 60], lonaxis_range=[-12, 20])
             fig.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title="% vs " + home))
@@ -124,6 +132,7 @@ else:
     tbl["reliability"] = tbl["confidence"].map({"ok": t("cc_conf_ok", lang), "low": t("cc_conf_low", lang)})
     fig = px.bar(tbl, x="country", y="market_net_eur", color="reliability", labels={"reliability": t("cc_col_conf", lang)}, text=tbl["market_net_eur"].map(lambda v: money(v, lang)),
                  color_discrete_map={t("cc_conf_ok", lang): GREEN, t("cc_conf_low", lang): ORANGE})
+    fig.update_traces(hovertemplate="%{x}<br>" + t("cc_net_price", lang) + ": %{y:,.2f}<extra></extra>")
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="#fff", xaxis_title=None,
                       yaxis_title=t("cc_net_price", lang))
     show(fig)

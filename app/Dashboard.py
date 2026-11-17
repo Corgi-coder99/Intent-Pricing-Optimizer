@@ -93,18 +93,33 @@ def signed_money(value: float, decimals: int = 0) -> str:
     return ("+" if value >= 0 else "−") + money(abs(value), lang, decimals)
 
 
+
+def lang_selectbox(label, options, key, format_func):
+    """Selectbox whose displayed option labels follow the language. Streamlit keeps the old option text while the
+    widget key is unchanged, so the language is part of the key and the chosen value is carried over."""
+    wkey = f"{key}@{lang}"
+    last = st.session_state.get(f"_last_{key}")
+    if wkey not in st.session_state and last in options:
+        st.session_state[wkey] = last
+    value = st.selectbox(label, options, key=wkey, format_func=format_func)
+    st.session_state[f"_last_{key}"] = value
+    return value
+
+
 # ---------------- FILTER BAR ----------------
 st.markdown(f"<h3 style='color:{NAVY};margin:0'>📈 {t('title', lang)}</h3>", unsafe_allow_html=True)
 st.caption(t("subtitle", lang))
 
 f1, f2, f3, f4 = st.columns(4)
-category = f1.selectbox(t("category", lang), [ALL] + sorted(df["category"].unique().tolist()), key="f_category",
-                        format_func=lambda c: t("all", lang) if c == ALL else category_label(c, lang))
+with f1:
+    category = lang_selectbox(t("category", lang), [ALL] + sorted(df["category"].unique().tolist()), "f_category",
+                              lambda c: t("all", lang) if c == ALL else category_label(c, lang))
 prods = [p for p in PRODUCT_CATALOG if category == ALL or p["category"] == category]
 prod_name = f2.selectbox(t("product", lang), [p["product_name"] for p in prods], key="f_product")
 prod = next(p for p in prods if p["product_name"] == prod_name)
-region = f3.selectbox(t("region", lang), [ALL] + sorted(df["region"].unique().tolist()), key="f_region",
-                      format_func=lambda r: t("all", lang) if r == ALL else r)
+with f3:
+    region = lang_selectbox(t("region", lang), [ALL] + sorted(df["region"].unique().tolist()), "f_region",
+                            lambda r: t("all", lang) if r == ALL else r)
 comp_name = f4.selectbox(t("competitor", lang), list(prod["competitors"].keys()), key="f_comp")
 
 with st.expander(t("market_sim", lang), expanded=False):
@@ -168,9 +183,11 @@ with c1:
     st.markdown(f"<div class='ptitle'>{t('curve_title', lang)}</div>", unsafe_allow_html=True)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(go.Bar(x=sim["offered_price"], y=sim["expected_revenue_per_100_visits"], name=t("rev_100", lang),
-                         marker_color=[ORANGE if p == opt_price else "#b9d3ea" for p in sim["offered_price"]]), secondary_y=False)
+                         marker_color=[ORANGE if p == opt_price else "#b9d3ea" for p in sim["offered_price"]],
+                         hovertemplate=f"{t('price_axis', lang)}: %{{x:,.2f}}<br>{t('rev_100', lang)}: %{{y:,.2f}}<extra></extra>"), secondary_y=False)
     fig.add_trace(go.Scatter(x=sim["offered_price"], y=sim["conversion_prob"] * 100, name=t("conv_pct", lang),
-                             mode="lines+markers", line=dict(color=NAVY, width=3)), secondary_y=True)
+                             mode="lines+markers", line=dict(color=NAVY, width=3),
+                             hovertemplate=f"{t('price_axis', lang)}: %{{x:,.2f}}<br>{t('conv_pct', lang)}: %{{y:.1f}}<extra></extra>"), secondary_y=True)
     fig.add_vline(x=comp_price, line_dash="dash", line_color=RED, annotation_text=f"{comp_name} {money(comp_price, lang, 2)}")
     fig.update_layout(height=320, margin=dict(l=10, r=10, t=80, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02),
                       plot_bgcolor="#fff", bargap=0.15, xaxis_title=t("price_axis", lang))
@@ -183,6 +200,7 @@ with c2:
     ct["label"] = ct["seller"].map(lambda s: t("our_price", lang) if s == OUR_LABEL else s)
     fig = px.bar(ct, x="price", y="label", orientation="h", text=ct["price"].map(lambda v: money(v, lang)),
                  color=ct["seller"].eq(OUR_LABEL), color_discrete_map={True: ORANGE, False: BLUE})
+    fig.update_traces(hovertemplate=f"%{{y}}<br>{t('price_axis', lang)}: %{{x:,.2f}}<extra></extra>")
     fig.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10), showlegend=False, plot_bgcolor="#fff",
                       yaxis_title=None, xaxis_title=t("price_axis", lang))
     show(fig)
@@ -197,6 +215,11 @@ with m1:
                          labels={"region": t("region", lang), "revenue": t("col_revenue", lang), "conversion_rate": t("col_conversion", lang),
                                  "avg_sentiment": t("col_sentiment", lang)},
                          color_continuous_scale="RdYlGn", size_max=38)
+    fig.update_traces(customdata=reg_df[["region", "revenue", "conversion_rate", "avg_sentiment"]].assign(
+        conversion_rate=reg_df["conversion_rate"] * 100).to_numpy(),
+        hovertemplate=("<b>%{customdata[0]}</b><br>" + t("col_revenue", lang) + ": %{customdata[1]:,.0f}<br>"
+                       + t("col_conversion", lang) + ": %{customdata[2]:.1f}<br>" + t("col_sentiment", lang)
+                       + ": %{customdata[3]:.2f}<extra></extra>"))
     fig.update_geos(scope="europe", lataxis_range=[41, 52], lonaxis_range=[-5.5, 9.5], showcountries=True,
                     countrycolor="#c9d1dc", showland=True, landcolor="#f4f6f9", showocean=True, oceancolor="#e8f1fa", resolution=50)
     fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), coloraxis_colorbar=dict(title=t("col_conversion", lang)))
@@ -205,12 +228,16 @@ with m2:
     st.markdown(f"<div class='ptitle'>{t('region_chart', lang)}</div>", unsafe_allow_html=True)
     rs = reg_df.sort_values("revenue")
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(go.Bar(x=rs["region"], y=rs["revenue"], name=t("revenue_eur", lang), marker_color=BLUE), secondary_y=False)
+    fig.add_trace(go.Bar(x=rs["region"], y=rs["revenue"], name=t("revenue_eur", lang), marker_color=BLUE,
+                         hovertemplate=f"%{{x}}<br>{t('revenue_eur', lang)}: %{{y:,.0f}}<extra></extra>"), secondary_y=False)
     fig.add_trace(go.Scatter(x=rs["region"], y=rs["conversion_rate"] * 100, name=t("conv_pct", lang), mode="lines+markers",
-                             line=dict(color=ORANGE, width=3)), secondary_y=True)
+                             line=dict(color=ORANGE, width=3),
+                             hovertemplate=f"%{{x}}<br>{t('conv_pct', lang)}: %{{y:.1f}}<extra></extra>"), secondary_y=True)
     fig.add_trace(go.Scatter(x=rs["region"], y=rs["avg_sentiment"] * 100, name=t("sentiment_x100", lang), mode="lines+markers",
-                             line=dict(color=GREEN, width=2, dash="dot")), secondary_y=True)
+                             line=dict(color=GREEN, width=2, dash="dot"),
+                             hovertemplate=f"%{{x}}<br>{t('sentiment_x100', lang)}: %{{y:.1f}}<extra></extra>"), secondary_y=True)
     fig.update_layout(height=360, margin=dict(l=10, r=10, t=80, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02), plot_bgcolor="#fff")
+    fig.update_yaxes(tickformat=",.0f", secondary_y=False)
     show(fig)
 
 # ---------------- ROW: CATEGORY + COMPLAINTS + RAG ----------------
@@ -222,6 +249,7 @@ with r1:
     gap = gap.assign(label=gap["category"].map(lambda c: category_label(c, lang)))
     fig = px.bar(gap, x="label", y="gap_pct", text=gap["gap_pct"].map(lambda v: pct(v, signed=True)),
                  color="gap_pct", color_continuous_scale="RdYlGn_r")
+    fig.update_traces(hovertemplate=f"%{{x}}<br>{t('gap_axis', lang)}: %{{y:+.1f}}<extra></extra>")
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), coloraxis_showscale=False, plot_bgcolor="#fff",
                       xaxis_title=None, yaxis_title=t("gap_axis", lang))
     show(fig)
@@ -230,7 +258,8 @@ with r2:
     cb = analytics.complaint_breakdown(scope)
     cb["label"] = cb["complaint_category"].map(lambda c: complaint_label(c, lang))
     fig = px.pie(cb, names="label", values="sessions", hole=0.45, color_discrete_sequence=[GREEN, ORANGE, RED, BLUE])
-    fig.update_traces(text=[pct(v / cb["sessions"].sum() * 100) for v in cb["sessions"]], textinfo="text")   # localized percentages
+    fig.update_traces(text=[pct(v / cb["sessions"].sum() * 100) for v in cb["sessions"]], textinfo="text",   # localized percentages
+                      hovertemplate=f"%{{label}}<br>{t('col_sessions', lang)}: %{{value:,.0f}}<extra></extra>")
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=-0.1))
     show(fig)
 with r3:

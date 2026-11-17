@@ -141,8 +141,12 @@ CATEGORY_FR = {"Electronics": "Électronique", "Accessories": "Accessoires", "Ho
                "Fashion & Gear": "Mode et équipement"}
 
 
+COMPLAINT_EN = {"none": "none", "price_value": "price / value", "shipping_packaging": "shipping and packaging",
+                "quality_defect": "quality defect"}
+
+
 def complaint_label(code: str, lang: str = "en") -> str:
-    return COMPLAINT_FR.get(code, code) if lang == "fr" else code
+    return (COMPLAINT_FR if lang == "fr" else COMPLAINT_EN).get(code, code)
 
 
 def category_label(code: str, lang: str = "en") -> str:
@@ -153,7 +157,15 @@ def streamlit_lang() -> str:
     """Sidebar language switch shared by all pages (kept in session state, English by default)."""
     import streamlit as st
     codes = list(LANGS)
-    current = st.session_state.get("lang", "en")
-    choice = st.sidebar.selectbox(t("language", current), codes, index=codes.index(current), format_func=LANGS.get)
-    st.session_state["lang"] = choice
-    return choice
+    if "lang" not in st.session_state:
+        st.session_state["lang"] = "en"
+    # The widget has its own key and a callback: the callback runs BEFORE the script reruns, so every label on the
+    # page (sidebar, filters, tab title) is already in the new language on the first rerun.
+    st.session_state["lang_widget"] = st.session_state["lang"]
+
+    def _apply():
+        st.session_state["lang"] = st.session_state["lang_widget"]
+
+    st.sidebar.selectbox(t("language", st.session_state["lang"]), codes, key="lang_widget",
+                         format_func=LANGS.get, on_change=_apply)
+    return st.session_state["lang"]
