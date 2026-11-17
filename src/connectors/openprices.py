@@ -310,9 +310,14 @@ def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_c
     rows: List[Dict] = []
     try:
         _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_location_max, max_locations_per_country, log)
-    except RequestBudgetExceeded as exc:
+    except ConnectorError as exc:                   # hết ngân sách yêu cầu hoặc lỗi mạng kéo dài: giữ phần đã có
         log(f"STOPPED EARLY: {exc}; keeping {len(rows)} rows already collected")
-    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+        partial = True
+    else:
+        partial = False
+    out = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+    out.attrs["partial"] = partial
+    return out
 
 
 def _collect(countries, locs, rows, th, fetch, sleep, per_country_max, per_location_max, max_locations_per_country, log):
@@ -387,7 +392,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     out = write_to_landing(df, DATA_DIR / "landing")
-    print(f"kept {len(df)} rows; countries={sorted(df['country'].unique()) if len(df) else []}; file={out.name if out else None}")
+    print(("PARTIAL RESULT (stopped early); " if df.attrs.get("partial") else "") + f"kept {len(df)} rows; countries={sorted(df['country'].unique()) if len(df) else []}; file={out.name if out else None}")
     return 0
 
 

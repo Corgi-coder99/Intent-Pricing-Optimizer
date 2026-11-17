@@ -45,3 +45,24 @@ def test_budget_counter_blocks_further_requests():
     except op.RequestBudgetExceeded:
         return
     raise AssertionError("budget not enforced")
+
+
+def test_network_failure_midway_keeps_rows_collected_so_far():
+    import urllib.error
+    state = {"loc_calls": 0}
+
+    def fetch(url):
+        u = urllib.parse.urlsplit(url)
+        if u.path == op.LOCATIONS_PATH:
+            items = [{"id": 1, "osm_address_country_code": "FR", "price_count": 9},
+                     {"id": 2, "osm_address_country_code": "DE", "price_count": 9}]
+            return json.dumps({"items": items if "page=1" in url else []}).encode()
+        if "location_id=2" in url:
+            raise TimeoutError("network down")
+        item = {"product_code": "3017620422003", "price": 1.0, "currency": "EUR", "date": "2026-01-01",
+                "location": {"osm_name": "S", "osm_address_country_code": "FR"}}
+        return json.dumps({"items": [item] if "page=1" in url else []}).encode()
+
+    logs = []
+    df = op.fetch_prices_by_location(["FR", "DE"], fetch=fetch, sleep=lambda s: None, log=logs.append)
+    assert len(df) == 1 and df.attrs["partial"] is True and any("STOPPED EARLY" in m for m in logs)
