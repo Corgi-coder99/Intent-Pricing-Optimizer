@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Optional
+import hashlib
 import os
-import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ class DynamicPricingModel:
 
     def __init__(self, model_path: Path = MODEL_ARTIFACT_PATH):
         self.model_path = Path(model_path)
-        self.model: Optional[lgb.LGBMClassifier] = None
+        self.model: Optional[lgb.Booster] = None
         self.feature_cols: List[str] = FEATURE_COLUMNS
 
     def train(self, df: pd.DataFrame) -> Dict[str, float]:
@@ -42,17 +42,24 @@ class DynamicPricingModel:
         self.model.fit(X_train, y_train)
         preds = self.model.predict_proba(X_test)[:, 1]
         auc = roc_auc_score(y_test, preds)
+        # Lưu bằng định dạng văn bản gốc của LightGBM (KHÔNG dùng pickle): nạp file này không thể chạy mã tuỳ ý.
         tmp = self.model_path.with_name(self.model_path.name + f".{os.getpid()}.tmp")
-        joblib.dump(self.model, tmp)
+        self.model.booster_.save_model(str(tmp))
         os.replace(tmp, self.model_path)   # nguyên tử: API đang đọc không bao giờ thấy file dở
+        self.model = lgb.Booster(model_file=str(self.model_path))
         return {"roc_auc": round(float(auc), 4)}
+
+    @property
+    def version(self) -> str:
+        """Mã phiên bản mô hình (SHA-256 của file): hai máy cùng mã thì cho cùng kết quả với cùng đầu vào."""
+        return hashlib.sha256(self.model_path.read_bytes()).hexdigest()[:12] if self.model_path.exists() else "none"
 
     def load(self) -> None:
         if not self.model_path.exists():
             raise FileNotFoundError(
                 f"Model artifact not found at {self.model_path}. Run src/train_pipeline.py first."
             )
-        self.model = joblib.load(self.model_path)
+        self.model = lgb.Booster(model_file=str(self.model_path))
 
     def simulate_price_curve(self, product_context: Dict[str, float]) -> pd.DataFrame:
         """Simulates conversion probability and expected revenue from -20% to +15% of base price."""
@@ -76,7 +83,7 @@ class DynamicPricingModel:
             })
 
         sim_df = pd.DataFrame(rows)
-        probs = self.model.predict_proba(sim_df[self.feature_cols])[:, 1]
+        probs = self.model.predict(sim_df[self.feature_cols])
         sim_df["conversion_prob"] = np.round(probs, 4)
         sim_df["expected_revenue_per_100_visits"] = np.round(
             sim_df["offered_price"] * sim_df["conversion_prob"] * 100.0, 2

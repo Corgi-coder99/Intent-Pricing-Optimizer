@@ -34,8 +34,12 @@ import pandas as pd
 
 ALLOWED_HOST = "prices.openfoodfacts.org"
 API_PATH = "/api/v1/prices"
+LOCATIONS_PATH = "/api/v1/locations"
+ALLOWED_PATHS = (API_PATH, LOCATIONS_PATH)
 USER_AGENT = "portfolio-research-client/1.0"
-ALLOWED_CURRENCIES = ("GBP", "EUR")
+ALLOWED_CURRENCIES = ("GBP", "EUR", "SEK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN")
+# EU27 + Vương quốc Anh: chỉ các nước này được phép làm bộ lọc quốc gia
+ALLOWED_COUNTRIES = frozenset("AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE GB".split())
 DEFAULT_COUNTRIES = ("GB", "FR", "DE", "IE")
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 PAGE_SIZE = 100
@@ -65,7 +69,7 @@ def validate_url(url: str) -> str:
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or u.hostname != ALLOWED_HOST or u.username or u.password or u.port not in (None, 443):
         raise ConnectorError(f"URL not allowed: {u.scheme}://{u.hostname}")
-    if u.path != API_PATH:
+    if u.path not in ALLOWED_PATHS:
         raise ConnectorError(f"Path not allowed: {u.path}")
     return url
 
@@ -76,6 +80,21 @@ def build_url(currency: str, page: int, size: int = PAGE_SIZE) -> str:
     if not (1 <= size <= PAGE_SIZE) or not (1 <= page <= 10_000):
         raise ValueError("page/size out of range")
     q = urllib.parse.urlencode({"currency": currency, "size": size, "page": page, "order_by": "-date"})
+    return validate_url(f"https://{ALLOWED_HOST}{API_PATH}?{q}")
+
+
+def build_locations_url(page: int, size: int = PAGE_SIZE) -> str:
+    if not (1 <= size <= PAGE_SIZE) or not (1 <= page <= 10_000):
+        raise ValueError("page/size out of range")
+    return validate_url(f"https://{ALLOWED_HOST}{LOCATIONS_PATH}?" + urllib.parse.urlencode({"size": size, "page": page}))
+
+
+def build_location_prices_url(location_id: int, page: int, size: int = PAGE_SIZE) -> str:
+    if isinstance(location_id, bool) or not isinstance(location_id, int) or not (0 < location_id < 10 ** 9):
+        raise ValueError("location_id must be a positive integer")
+    if not (1 <= size <= PAGE_SIZE) or not (1 <= page <= 10_000):
+        raise ValueError("page/size out of range")
+    q = urllib.parse.urlencode({"location_id": location_id, "size": size, "page": page, "order_by": "-date"})
     return validate_url(f"https://{ALLOWED_HOST}{API_PATH}?{q}")
 
 
@@ -96,7 +115,7 @@ def http_get(url: str) -> bytes:
     opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with opener.open(req, timeout=TIMEOUT_SECONDS) as resp:
-        validate_url(resp.geturl().split("?")[0] + "")
+        validate_url(resp.geturl().split("?")[0])
         ctype = resp.headers.get("Content-Type", "")
         if "json" not in ctype.lower():
             raise ConnectorError(f"Unexpected content type: {ctype[:50]}")
@@ -190,6 +209,30 @@ def parse_item(item: dict, countries: Iterable[str] = DEFAULT_COUNTRIES) -> Opti
     }
 
 
+def parse_location(item: dict, countries: Iterable[str]) -> Optional[Dict]:
+    if not isinstance(item, dict):
+        return None
+    lid, count = item.get("id"), item.get("price_count")
+    country = str(item.get("osm_address_country_code") or "").upper()
+    if (isinstance(lid, bool) or not isinstance(lid, int) or lid <= 0 or country not in set(countries)
+            or isinstance(count, bool) or not isinstance(count, int) or count <= 0):
+        return None
+    return {"id": lid, "country": country, "price_count": count}
+
+
+class _Throttle:
+    """Nhịp gọi tối thiểu giữa hai request (dùng chung cho mọi lần gọi)."""
+
+    def __init__(self, sleep: Callable[[float], None]):
+        self.sleep, self.last = sleep, 0.0
+
+    def wait(self) -> None:
+        gap = MIN_INTERVAL_SECONDS - (time.monotonic() - self.last)
+        if self.last and gap > 0:
+            self.sleep(gap)
+        self.last = time.monotonic()
+
+
 # ------------------------------------------------------------------ tải dữ liệu
 def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable[str] = DEFAULT_COUNTRIES,
                  max_records: int = 5000, max_pages: int = 60,
@@ -227,6 +270,63 @@ def fetch_prices(currencies: Iterable[str] = ("GBP", "EUR"), countries: Iterable
     return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
 
+def fetch_prices_by_location(countries: Iterable[str] = DEFAULT_COUNTRIES, per_country_max: int = 1500,
+                             per_location_max: int = 300, max_location_pages: int = 100,
+                             fetch: Callable[[str], bytes] = http_get,
+                             sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
+    """Vì API không lọc được theo quốc gia: (1) quét danh sách địa điểm và lọc quốc gia ở phía client,
+    (2) tải giá theo từng location_id với hạn mức mỗi quốc gia và mỗi địa điểm (để một cửa hàng không áp đảo)."""
+    countries = tuple(c.upper() for c in countries)
+    bad = [c for c in countries if c not in ALLOWED_COUNTRIES]
+    if bad:
+        raise ValueError(f"Countries not allowed: {bad}")
+    th = _Throttle(sleep)
+    locs: Dict[str, List[Dict]] = {c: [] for c in countries}
+    for page in range(1, max_location_pages + 1):
+        th.wait()
+        try:
+            data = fetch_json(build_locations_url(page), fetch, sleep)
+        except HTTPStatusError as exc:
+            if exc.code == 404 and page > 1:
+                break
+            raise
+        if not data["items"]:
+            break
+        for it in data["items"]:
+            loc = parse_location(it, countries)
+            if loc:
+                locs[loc["country"]].append(loc)
+
+    rows: List[Dict] = []
+    for country in countries:
+        got = 0
+        for loc in sorted(locs[country], key=lambda x: -x["price_count"]):
+            taken = 0
+            for page in range(1, -(-per_location_max // PAGE_SIZE) + 1):
+                if got >= per_country_max or taken >= per_location_max:
+                    break
+                th.wait()
+                try:
+                    data = fetch_json(build_location_prices_url(loc["id"], page), fetch, sleep)
+                except HTTPStatusError as exc:
+                    if exc.code == 404 and page > 1:
+                        break
+                    raise
+                if not data["items"]:
+                    break
+                for it in data["items"]:
+                    row = parse_item(it, countries)
+                    if row and row["country"] == country:
+                        rows.append(row)
+                        got += 1
+                        taken += 1
+                        if got >= per_country_max or taken >= per_location_max:
+                            break
+            if got >= per_country_max:
+                break
+    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+
+
 def write_to_landing(df: pd.DataFrame, landing: Path) -> Optional[Path]:
     """Ghi CSV vào landing: tmp + rename, tên theo nội dung (tải lại cùng dữ liệu không tạo file trùng)."""
     if df.empty:
@@ -247,6 +347,8 @@ def write_to_landing(df: pd.DataFrame, landing: Path) -> Optional[Path]:
 def main(argv: Optional[List[str]] = None) -> int:
     from src.config import DATA_DIR
     ap = argparse.ArgumentParser(prog="python -m src.connectors.openprices")
+    ap.add_argument("--mode", choices=["by-location", "currency"], default="by-location")
+    ap.add_argument("--per-country", type=int, default=1500)
     ap.add_argument("--currencies", nargs="+", default=["GBP", "EUR"], choices=list(ALLOWED_CURRENCIES))
     ap.add_argument("--countries", nargs="+", default=list(DEFAULT_COUNTRIES))
     ap.add_argument("--max-records", type=int, default=5000)
@@ -255,8 +357,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not (1 <= args.max_records <= 100_000 and 1 <= args.max_pages <= 500):
         ap.error("max-records must be 1..100000 and max-pages 1..500")
     try:
-        df = fetch_prices(args.currencies, args.countries, args.max_records, args.max_pages)
-    except ConnectorError as exc:
+        if args.mode == "by-location":
+            if not (1 <= args.per_country <= 20_000):
+                ap.error("per-country must be 1..20000")
+            df = fetch_prices_by_location(args.countries, per_country_max=args.per_country)
+        else:
+            df = fetch_prices(args.currencies, args.countries, args.max_records, args.max_pages)
+    except (ConnectorError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     out = write_to_landing(df, DATA_DIR / "landing")

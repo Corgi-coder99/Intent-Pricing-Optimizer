@@ -411,13 +411,32 @@ def gold_summaries(ctx: Context) -> Dict:
     return {"regions": df["region"].nunique(), "categories": df["category"].nunique()}
 
 
+def robust_price_stats(df: pd.DataFrame, k: float = 5.0, min_obs: int = 5) -> pd.DataFrame:
+    """Thống kê giá theo (sản phẩm, quốc gia, tiền tệ) chống dữ liệu cộng đồng bẩn/bị phá hoại: điểm lệch quá k lần
+    độ lệch tuyệt đối trung vị (MAD, có sàn 2% giá trung vị) bị loại khỏi min/median/max và được đếm riêng."""
+    keys = ["product_code", "country", "currency"]
+    d = df.copy()
+    d["_med"] = d.groupby(keys)["price"].transform("median")
+    d["_dev"] = (d["price"] - d["_med"]).abs()
+    d["_mad"] = d.groupby(keys)["_dev"].transform("median")
+    d["_n"] = d.groupby(keys)["price"].transform("size")
+    scale = (1.4826 * d["_mad"]).clip(lower=0.02 * d["_med"])
+    d["is_outlier"] = (d["_n"] >= min_obs) & (d["_dev"] > k * scale)
+    kept = d[~d["is_outlier"]]
+    g = kept.groupby(keys).agg(n_obs=("price", "size"), n_stores=("store", "nunique"), min_price=("price", "min"),
+                               median_price=("price", "median"), max_price=("price", "max"),
+                               last_seen=("observed_at", "max")).reset_index()
+    out = d.groupby(keys)["is_outlier"].sum().astype(int).rename("n_outliers").reset_index()
+    g = g.merge(out, on=keys, how="left")
+    g["confidence"] = ((g["n_stores"] >= 2) & (g["n_obs"] >= 3)).map({True: "ok", False: "low"})
+    return g
+
+
 def gold_competitor_prices(ctx: Context) -> Dict:
     path = ctx.layout.silver / "price_observation.parquet"
     if not path.exists():
         return {"skipped": "no price_observation data"}
-    df = pd.read_parquet(path)
-    g = df.groupby(["product_code", "country", "currency"]).agg(
-        n_stores=("store", "nunique"), min_price=("price", "min"), median_price=("price", "median"),
-        max_price=("price", "max"), last_seen=("observed_at", "max")).reset_index()
+    g = robust_price_stats(pd.read_parquet(path))
     atomic_write_parquet(g, ctx.layout.gold / "competitor_prices.parquet")
-    return {"groups": len(g)}
+    return {"groups": len(g), "outliers_excluded": int(g["n_outliers"].sum()),
+            "groups_with_2plus_stores": int((g["n_stores"] >= 2).sum())}

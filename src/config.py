@@ -16,7 +16,7 @@ PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 # File Paths
 RAW_DATASET_PATH = RAW_DATA_DIR / "ecommerce_sessions_raw.csv"
 PROCESSED_DATASET_PATH = PROCESSED_DATA_DIR / "ecommerce_processed.csv"
-MODEL_ARTIFACT_PATH = PROCESSED_DATA_DIR / "lgbm_pricing.pkl"
+MODEL_ARTIFACT_PATH = PROCESSED_DATA_DIR / "lgbm_pricing.txt"
 
 # Model & Simulation Settings
 RANDOM_SEED = 42

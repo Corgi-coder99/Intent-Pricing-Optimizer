@@ -69,7 +69,7 @@ def test_review_analysis_cached_and_reload(client):
         assert calls["n"] == 1
     finally:
         api.state["extractor"].analyze_single_review = real
-    assert client.post("/v1/admin/reload").json() == {"reloaded": True}
+    assert client.post("/v1/admin/reload").json()["reloaded"] is True
 
 
 @pytest.fixture(autouse=True)
