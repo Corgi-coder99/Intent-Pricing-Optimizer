@@ -45,3 +45,16 @@ a confusion matrix, coverage and a verdict, without ever printing review text (w
 A bug caught by browser testing: the sentence "Packaging felt cheap and protective seal was broken" was mislabelled `quality_defect`
 (it used the last matching category); it now picks the category with the most keyword hits. Its own test then exposed two more substring bugs
 ("fast" matched inside "faster", "late" inside "chocolate"); keywords are now matched as whole words and the ambiguous "fast" was dropped.
+
+## 3. Running the Tier-1 validation on the Kaggle review dataset
+Dataset: "Women's E-Commerce Clothing Reviews" (Kaggle, user nicapotato; 23,486 reviews; the Kaggle page lists CC0 - confirm that on the page before use).
+The brand is anonymised in the source. You need a free Kaggle account to download it (the project cannot download it for you).
+1. Download and unzip it; the file is `Womens Clothing E-Commerce Reviews.csv`.
+2. Put it in `data/external/` (git-ignored; do not copy it into `data/landing/`, it is not a pipeline contract file).
+3. Run:
+```bash
+python -m src.review_validation --file "data/external/Womens Clothing E-Commerce Reviews.csv" --text-col "Review Text" --rating-col "Rating"
+```
+Only the text and rating columns are read; the report contains counts and rates, never review text.
+Expect weak results: the reader knows about 20 English keywords and was built for product-quality, price and shipping complaints, while these are fashion reviews (fit, fabric, colour).
+A `verdict` of `illustrative_only` is a valid and useful outcome: it measures how far the reader is from usable.
