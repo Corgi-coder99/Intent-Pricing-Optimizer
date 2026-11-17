@@ -9,12 +9,13 @@ from src.pipeline.infra import atomic_write_json, fingerprint, read_json
 
 
 def run_full_pipeline(n_samples: int = 50000, use_llm: bool = False, wait_lock: float = 600.0,
-                      force: bool = False) -> Dict[str, object]:
+                      force: bool = False, isolate: bool = True) -> Dict[str, object]:
     """landing -> bronze -> silver -> gold (src.pipeline), then train Tier 2 LightGBM from the gold table.
-    Training is skipped when neither the gold data nor the model code changed (use force=True to retrain)."""
+    Training is skipped when neither the gold data nor the model code changed (use force=True to retrain).
+    isolate=False runs the steps in this process (no per-step timeouts): needed inside Streamlit, whose script cannot be re-imported by child processes."""
     print("[1/2] Running bronze -> silver -> gold pipeline ...")
     layout = Layout(DATA_DIR)
-    report = run_pipeline(layout, simulate_n=n_samples, use_llm=use_llm, wait_lock=wait_lock)
+    report = run_pipeline(layout, simulate_n=n_samples, use_llm=use_llm, wait_lock=wait_lock, isolate=isolate)
     if not report["ok"]:
         raise RuntimeError(f"Pipeline failed: {report['status']} {report['results']}")
 

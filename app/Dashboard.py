@@ -45,7 +45,7 @@ st.markdown(
 @st.cache_resource
 def load_system():
     if not PROCESSED_DATASET_PATH.exists() or not MODEL_ARTIFACT_PATH.exists():
-        run_full_pipeline(use_llm=False)
+        run_full_pipeline(use_llm=False, isolate=False)   # child processes would re-import this Streamlit script
     df = pd.read_csv(PROCESSED_DATASET_PATH)
     model = DynamicPricingModel()
     model.load()

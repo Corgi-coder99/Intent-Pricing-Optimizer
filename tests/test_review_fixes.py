@@ -188,3 +188,12 @@ def test_kpi_count_matches_what_the_country_chart_compares():
     assert compared_product_count(m, only_confident=True) == 1                             # C's home row is not reliable
     assert compared_product_count(m, countries=["IT"]) == 1
     assert country_summary(m)["n_products"].sum() == 3                                     # DE: A and C, IT: A (B is never compared)
+
+
+def test_dashboard_runs_pipeline_in_process():
+    """Streamlit scripts cannot be re-imported by spawned child processes (hosted first run hung), so the dashboard must pass isolate=False."""
+    import inspect
+    from pathlib import Path
+    from src.train_pipeline import run_full_pipeline
+    assert "isolate" in inspect.signature(run_full_pipeline).parameters
+    assert "isolate=False" in (Path(__file__).resolve().parent.parent / "app" / "Dashboard.py").read_text(encoding="utf-8")
