@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Pricing Engine &amp; Intent Analytics — Enterprise Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            corporate: {
+              50: '#f8fafc',
+              100: '#f1f5f9',
+              200: '#e2e8f0',
+              300: '#cbd5e1',
+              400: '#94a3b8',
+              500: '#64748b',
+              600: '#475569',
+              700: '#334155',
+              800: '#1e293b',
+              850: '#151c2c',
+              900: '#0f172a',
+              950: '#090d16',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #090d16;
+      color: #cbd5e1;
+      font-family: 'Inter', sans-serif;
+    }
+    /* High-density corporate scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Corporate telemetry inputs */
+    input[type=range] { -webkit-appearance: none; background: transparent; }
+    input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: #334155; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; height: 12px; width: 12px; border-radius: 2px;
+      background: #38bdf8; border: 1px solid #0f172a; cursor: pointer; margin-top: -4px;
+    }
+
+    .terminal-card {
+      background-color: #0f172a;
+      border: 1px solid #1e293b;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+    }
+    .terminal-card-hover:hover {
+      border-color: #334155;
+    }
+    .grid-pattern {
+      background-size: 24px 24px;
+      background-image: linear-gradient(to right, rgba(30, 41, 59, 0.2) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(30, 41, 59, 0.2) 1px, transparent 1px);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col text-xs sm:text-sm antialiased selection:bg-sky-500/20 selection:text-sky-200">
+
+  <!-- TOP ENTERPRISE NAVIGATION BAR (DATADOG / AWS STYLE) -->
+  <header class="h-12 bg-corporate-950 border-b border-corporate-800 px-4 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2">
+        <div class="w-6 h-6 rounded bg-sky-600 flex items-center justify-center font-bold text-white font-mono text-xs shadow-sm">NX</div>
+        <span class="font-semibold text-corporate-100 text-sm tracking-tight">Nexus Cloud</span>
+        <span class="text-corporate-500 font-mono text-xs">/</span>
+        <span class="text-corporate-300 font-mono text-xs">pricing-engine-prod-us-east</span>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-1 text-xs font-medium pl-4 border-l border-corporate-800">
+        <a href="#overview" class="px-2.5 py-1 rounded bg-corporate-800/80 text-corporate-100 font-medium">Dashboard</a>
+        <a href="#models" class="px-2.5 py-1 rounded text-corporate-400 hover:text-corporate-200 transition">ML Pipelines</a>
+        <a href="#telemetry" class="px-2.5 py-1 rounded text-corporate-400 hover:text-corporate-200 transition">Telemetry &amp; Logs</a>
+        <a href="#settings" class="px-2.5 py-1 rounded text-corporate-400 hover:text-corporate-200 transition">Guardrails</a>
+      </nav>
+    </div>
+
+    <div class="flex items-center space-x-3 font-mono text-xs">
+      <div class="hidden sm:flex items-center space-x-2 bg-corporate-900 border border-corporate-800 px-2.5 py-1 rounded">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-corporate-300">Inference Latency: <strong class="text-emerald-400">14.2ms</strong></span>
+      </div>
+
+      <div class="relative">
+        <select id="skuSelector" class="bg-corporate-900 border border-corporate-800 text-corporate-200 rounded px-2.5 py-1 text-xs font-mono focus:outline-none focus:border-sky-500 cursor-pointer">
+          <option value="sony">SKU: WH-1000XM5 (Consumer Audio)</option>
+          <option value="macbook">SKU: MacBook Air M3 (Computing)</option>
+          <option value="dyson">SKU: V15 Cordless Vacuum (Home)</option>
+          <option value="nespresso">SKU: Vertuo Next (Appliance)</option>
+        </select>
+      </div>
+
+      <button id="refreshPipelineBtn" type="button" class="bg-corporate-800 hover:bg-corporate-700 text-corporate-200 px-2.5 py-1 rounded border border-corporate-700 transition font-medium">
+        Sync Pipeline
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN DASHBOARD CONTAINER -->
+  <main class="flex-1 max-w-[1700px] w-full mx-auto p-4 space-y-4 grid-pattern">
+
+    <!-- SUB-HEADER TELEMETRY BAR -->
+    <div class="terminal-card rounded p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div class="flex items-center space-x-4">
+        <div>
+          <span class="text-corporate-500 uppercase tracking-wider block text-[10px]">Active Cluster</span>
+          <span class="font-mono text-corporate-200 font-medium">eks-pricing-inference-us-east-1b</span>
+        </div>
+        <div class="h-8 w-px bg-corporate-800"></div>
+        <div>
+          <span class="text-corporate-500 uppercase tracking-wider block text-[10px]">Active Model Artifact</span>
+          <span class="font-mono text-sky-400 font-medium">LightGBM_Elasticity_v4.2.pkl</span>
+        </div>
+        <div class="h-8 w-px bg-corporate-800 hidden sm:block"></div>
+        <div class="hidden sm:block">
+          <span class="text-corporate-500 uppercase tracking-wider block text-[10px]">NLP Feature Extractor</span>
+          <span class="font-mono text-emerald-400 font-medium">BERT-Sentiment-Quantizer (Active)</span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <div class="text-right font-mono">
+          <span class="text-corporate-500 block text-[10px]">Evaluation Window</span>
+          <span class="text-corporate-300">T-0 Realtime Stream</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROW 1: 4 CORPORATE METRICS CARDS -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <!-- Card 1 -->
+      <div class="terminal-card terminal-card-hover rounded p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-corporate-400">
+          <span class="text-xs font-medium">Optimal Recommended Price</span>
+          <span id="kpiPriceDeltaBadge" class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">-4.5% vs Base</span>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span id="kpiOptimalPrice" class="text-2xl font-bold font-mono text-corporate-50">$329.00</span>
+          <span id="kpiBasePriceRef" class="text-xs font-mono text-corporate-500 line-through">$349.00</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-corporate-800 flex justify-between text-[11px] text-corporate-400 font-mono">
+          <span>Gross Margin: <strong id="kpiActualMargin" class="text-sky-400">36.2%</strong></span>
+          <span>COGS Floor: <strong id="kpiCogsRef" class="text-corporate-300">$210</strong></span>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="terminal-card terminal-card-hover rounded p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-corporate-400">
+          <span class="text-xs font-medium">Predicted Conversion Probability</span>
+          <span id="kpiConvLiftBadge" class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">+2.4% Lift</span>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span id="kpiOptimalConv" class="text-2xl font-bold font-mono text-corporate-50">14.8%</span>
+          <span id="kpiBaseConvRef" class="text-xs font-mono text-corporate-500">Base: 12.4%</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-corporate-800 flex justify-between text-[11px] text-corporate-400 font-mono">
+          <span>Model AUC-ROC: <strong class="text-emerald-400">0.841</strong></span>
+          <span>Sample Size: <strong class="text-corporate-300">10,480</strong></span>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="terminal-card terminal-card-hover rounded p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-corporate-400">
+          <span class="text-xs font-medium">Projected Gross Profit / 100 Visits</span>
+          <span id="kpiProfitLiftBadge" class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">+$245.00</span>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span id="kpiOptimalProfit" class="text-2xl font-bold font-mono text-corporate-50">$1,761.20</span>
+          <span id="kpiBaseProfitRef" class="text-xs font-mono text-corporate-500">$1,516.20</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-corporate-800 flex justify-between text-[11px] text-corporate-400 font-mono">
+          <span>Optimization Goal: <strong class="text-corporate-200">Max Profit</strong></span>
+          <span id="kpiFloorStatus" class="text-emerald-400">Guardrail OK</span>
+        </div>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="terminal-card terminal-card-hover rounded p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-corporate-400">
+          <span class="text-xs font-medium">NLP Review Sentiment Index</span>
+          <span id="kpiSentimentBadge" class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Moderate Friction</span>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span id="kpiSentimentScore" class="text-2xl font-bold font-mono text-corporate-50">0.58</span>
+          <span class="text-xs font-mono text-corporate-500">/ 1.00 Index</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-corporate-800 flex justify-between text-[11px] text-corporate-400 font-mono">
+          <span>Top Pain Point: <strong id="kpiTopFriction" class="text-rose-400">Battery Drain</strong></span>
+          <span>RAG Active</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ROW 2: CORE ANALYTICS WORKSPACE (CHART + MODEL EXPLAINABILITY) -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+      <!-- LEFT: PRICE ELASTICITY & REVENUE CURVE (7 COLS) -->
+      <div class="lg:col-span-7 terminal-card rounded p-4 flex flex-col justify-between space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-corporate-800">
+          <div>
+            <h2 class="font-semibold text-corporate-100 flex items-center space-x-2">
+              <span class="w-2 h-2 rounded bg-sky-500"></span>
+              <span>Price Elasticity &amp; Gross Profit Optimization Curve</span>
+            </h2>
+            <p class="text-xs text-corporate-400 mt-0.5">Real-time simulation across -20% to +15% pricing space under COGS floor constraints</p>
+          </div>
+          <div class="flex items-center space-x-3 text-[11px] font-mono">
+            <span class="flex items-center space-x-1.5 text-emerald-400"><span class="w-2 h-2 bg-emerald-500"></span><span>Gross Profit ($)</span></span>
+            <span class="flex items-center space-x-1.5 text-sky-400"><span class="w-2 h-0.5 bg-sky-400"></span><span>Conversion (%)</span></span>
+            <span class="flex items-center space-x-1.5 text-purple-400"><span class="w-2 h-2 rounded-full bg-purple-500"></span><span>Optimal</span></span>
+          </div>
+        </div>
+
+        <!-- SVG Chart Container -->
+        <div class="relative bg-corporate-950 rounded border border-corporate-800 p-2">
+          <div id="chartTooltip" class="pointer-events-none opacity-0 transition-opacity duration-150 absolute z-20 bg-corporate-900 border border-corporate-700 rounded px-2.5 py-1.5 text-xs shadow-xl font-mono"></div>
+          <svg id="elasticityChart" class="w-full h-[260px] sm:h-[290px] overflow-visible" viewBox="0 0 720 280" preserveAspectRatio="none"></svg>
+        </div>
+
+        <!-- 5 Control Sliders (Engineering parameters) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+          <!-- Slider 1 -->
+          <div class="bg-corporate-900 border border-corporate-800 rounded p-2.5">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-corporate-400 font-medium">Base Retail Price</span>
+              <span id="valBasePrice" class="font-mono font-semibold text-corporate-100">$349</span>
+            </div>
+            <input id="sliderBasePrice" type="range" min="50" max="1800" step="5" value="349" class="w-full">
+          </div>
+
+          <!-- Slider 2 -->
+          <div class="bg-corporate-900 border border-corporate-800 rounded p-2.5">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-corporate-400 font-medium">Unit Cost (COGS)</span>
+              <span id="valUnitCost" class="font-mono font-semibold text-corporate-200">$210</span>
+            </div>
+            <input id="sliderUnitCost" type="range" min="20" max="1400" step="5" value="210" class="w-full">
+          </div>
+
+          <!-- Slider 3 -->
+          <div class="bg-corporate-900 border border-corporate-800 rounded p-2.5">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-corporate-400 font-medium">Competitor Price</span>
+              <span id="valCompPrice" class="font-mono font-semibold text-amber-300">$339</span>
+            </div>
+            <input id="sliderCompPrice" type="range" min="50" max="1800" step="5" value="339" class="w-full">
+          </div>
+
+          <!-- Slider 4 -->
+          <div class="bg-corporate-900 border border-corporate-800 rounded p-2.5">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-corporate-400 font-medium">AI Sentiment Score</span>
+              <span id="valSentiment" class="font-mono font-semibold text-sky-300">0.58</span>
+            </div>
+            <input id="sliderSentiment" type="range" min="0.05" max="0.98" step="0.01" value="0.58" class="w-full">
+          </div>
+
+          <!-- Slider 5 -->
+          <div class="bg-corporate-900 border border-corporate-800 rounded p-2.5 sm:col-span-2 md:col-span-2">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-corporate-400 font-medium">Min Gross Margin Guardrail Floor (%)</span>
+              <span id="valMarginFloor" class="font-mono font-semibold text-purple-300">22%</span>
+            </div>
+            <input id="sliderMarginFloor" type="range" min="5" max="55" step="1" value="22" class="w-full">
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: SHAP ATTRIBUTION + NLP RAG EVIDENCE (5 COLS) -->
+      <div class="lg:col-span-5 flex flex-col space-y-4">
+
+        <!-- SHAP Explainability Card -->
+        <div class="terminal-card rounded p-4">
+          <div class="flex items-center justify-between pb-2.5 mb-3 border-b border-corporate-800">
+            <div>
+              <h2 class="font-semibold text-corporate-100 flex items-center space-x-2 text-sm">
+                <span class="w-2 h-2 rounded bg-purple-500"></span>
+                <span>Explainable AI (TreeSHAP Feature Attribution)</span>
+              </h2>
+              <p class="text-[11px] text-corporate-400 mt-0.5">Log-odds impact on conversion probability</p>
+            </div>
+            <span class="font-mono text-[10px] bg-corporate-800 text-corporate-300 px-2 py-0.5 rounded border border-corporate-700">TreeSHAP</span>
+          </div>
+          <div id="shapContainer" class="space-y-2.5">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Tier-1 NLP RAG Evidence Card -->
+        <div class="terminal-card rounded p-4 flex-1 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between pb-2.5 mb-3 border-b border-corporate-800">
+              <div>
+                <h2 class="font-semibold text-corporate-100 flex items-center space-x-2 text-sm">
+                  <span class="w-2 h-2 rounded bg-emerald-500"></span>
+                  <span>Voice-of-Customer RAG &amp; NLP Extractor</span>
+                </h2>
+                <p class="text-[11px] text-corporate-400 mt-0.5">Live unstructured feedback indexed into vector DB</p>
+              </div>
+              <span id="ragTagBadge" class="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">quality_defect</span>
+            </div>
+
+            <!-- Review Quotes -->
+            <div id="ragQuotesList" class="space-y-2 mb-3 max-h-[145px] overflow-y-auto pr-1">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Custom Review Testing Form -->
+          <div class="bg-corporate-950 border border-corporate-800 rounded p-2.5">
+            <label for="customReviewInput" class="block text-[11px] font-medium text-sky-300 mb-1">
+              Test Custom Customer Review (Real-Time NLP Pipeline):
+            </label>
+            <div class="flex space-x-2">
+              <input id="customReviewInput" type="text" placeholder="e.g., Battery drains fast and overpriced vs competitors..." class="flex-1 bg-corporate-900 border border-corporate-700 rounded px-2.5 py-1 text-xs text-corporate-100 placeholder-corporate-500 focus:outline-none focus:border-sky-500 font-mono" />
+              <button id="analyzeReviewBtn" type="button" class="bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1 rounded text-xs transition shrink-0">
+                Process
+              </button>
+            </div>
+            <p id="nlpFeedbackLine" class="text-[11px] font-mono text-corporate-400 mt-1.5">
+              Ready — Enter feedback to update sentiment index and re-run price optimization.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ROW 3: TIER-3 AUTONOMOUS AGENT CONSOLE & DATADOG AUDIT LOGS -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+      <!-- AGENT STRATEGY CARD (5 COLS) -->
+      <div class="lg:col-span-5 terminal-card rounded p-4 border-l-4 border-l-sky-500 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-[11px] uppercase tracking-wider text-sky-400 font-semibold">Tier-3 Autonomous Pricing Agent</span>
+            <span id="agentConfidenceBadge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">Confidence: 94.2%</span>
+          </div>
+          <h3 id="agentStrategyTitle" class="text-base font-bold text-corporate-50">Defensive Conversion Recovery</h3>
+          <p id="agentRationaleText" class="text-xs text-corporate-300 leading-relaxed mt-2 font-mono">
+            Customer sentiment is pressured by battery drain complaints while competitor pricing sits $10 lower. Recommending a targeted 5.7% price reduction to $329.00, lifting expected conversion by +2.4% while preserving a 36.2% gross margin above your 22% floor.
+          </p>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-corporate-800 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center space-x-2 text-xs">
+            <span class="text-corporate-400">Trigger Payload:</span>
+            <code id="agentActionTag" class="px-2 py-0.5 rounded bg-corporate-900 text-sky-300 font-mono text-[11px] border border-corporate-800">EXEC_PRICE_SET_329.00</code>
+          </div>
+          <button id="deployPolicyBtn" type="button" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded text-xs transition flex items-center space-x-1.5 shadow-sm">
+            <span>Publish to Storefront API</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- DATADOG AUDIT STREAM & TELEMETRY LOGS (7 COLS) -->
+      <div class="lg:col-span-7 terminal-card rounded p-4 flex flex-col">
+        <div class="flex items-center justify-between pb-2.5 mb-2.5 border-b border-corporate-800">
+          <div>
+            <h2 class="font-semibold text-corporate-100 text-sm">Enterprise Telemetry &amp; Audit Log Stream</h2>
+            <p class="text-[11px] text-corporate-400">Real-time webhook events, model inference requests, and CFO guardrail checks</p>
+          </div>
+          <button id="clearLogBtn" type="button" class="text-[11px] font-mono text-corporate-400 hover:text-corporate-200 px-2 py-1 rounded bg-corporate-900 border border-corporate-800 transition">
+            Clear Logs
+          </button>
+        </div>
+
+        <div class="overflow-x-auto flex-1 max-h-[175px] overflow-y-auto font-mono text-[11px]">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="text-corporate-500 uppercase text-[10px] border-b border-corporate-800">
+                <th class="pb-2 pr-3">Timestamp</th>
+                <th class="pb-2 pr-3">Service</th>
+                <th class="pb-2 pr-3">Event / Action</th>
+                <th class="pb-2 pr-3">Price</th>
+                <th class="pb-2 text-right">Profit / 100</th>
+              </tr>
+            </thead>
+            <tbody id="auditLogBody" class="divide-y divide-corporate-800/60">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- JAVASCRIPT: ENTERPRISE DATA & ANALYTICS ENGINE -->
+  <script>
+    const SKU_DATA = {
+      sony: {
+        id: 'PRD-WH1000XM5',
+        name: 'Sony WH-1000XM5 Wireless Headphones',
+        basePrice: 349,
+        unitCost: 210,
+        compPrice: 339,
+        sentiment: 0.58,
+        marginFloor: 22,
+        sessionViews: 6.4,
+        cartAdds7d: 42,
+        topFriction: 'Battery & Hinge Stress',
+        frictionTag: 'quality_defect',
+        reviews: [
+          { text: 'Noise cancellation is unreal, but battery drains faster than advertised on multipoint.', tag: 'quality_defect', score: 0.42 },
+          { text: 'Slightly overpriced compared to Bose QC Ultra right now, waited for a promo.', tag: 'price_value', score: 0.48 },
+          { text: 'Super lightweight and crystal clear mic quality for daily remote work.', tag: 'none', score: 0.88 }
+        ]
+      },
+      macbook: {
+        id: 'PRD-MBA-M3-15',
+        name: 'Apple MacBook Air M3 15-inch',
+        basePrice: 1299,
+        unitCost: 960,
+        compPrice: 1329,
+        sentiment: 0.84,
+        marginFloor: 18,
+        sessionViews: 8.2,
+        cartAdds7d: 68,
+        topFriction: 'Minimal Friction',
+        frictionTag: 'none',
+        reviews: [
+          { text: 'Build quality exceeds expectations and works seamlessly out of the box. Worth every penny!', tag: 'none', score: 0.94 },
+          { text: 'Competitors are charging more for bulky laptops; this screen and battery life are unbeatable.', tag: 'none', score: 0.91 },
+          { text: 'Base storage could be higher, otherwise flawless silent performance.', tag: 'price_value', score: 0.67 }
+        ]
+      },
+      dyson: {
+        id: 'PRD-DYSON-V15',
+        name: 'Dyson V15 Detect Cordless Vacuum',
+        basePrice: 749,
+        unitCost: 460,
+        compPrice: 679,
+        sentiment: 0.46,
+        marginFloor: 25,
+        sessionViews: 5.1,
+        cartAdds7d: 29,
+        topFriction: 'Overpriced vs Competitor',
+        frictionTag: 'price_value',
+        reviews: [
+          { text: 'Good suction power overall, but honestly overpriced compared to competitors at $679.', tag: 'price_value', score: 0.36 },
+          { text: 'Too expensive for what you get and outer box arrived slightly crushed.', tag: 'shipping_packaging', score: 0.32 },
+          { text: 'Laser dust detection is genuinely useful on hardwood floors.', tag: 'none', score: 0.78 }
+        ]
+      },
+      nespresso: {
+        id: 'PRD-NESP-VERTUO',
+        name: 'Nespresso Vertuo Next Machine',
+        basePrice: 179,
+        unitCost: 98,
+        compPrice: 175,
+        sentiment: 0.41,
+        marginFloor: 28,
+        sessionViews: 4.3,
+        cartAdds7d: 31,
+        topFriction: 'Shipping & Leak Reports',
+        frictionTag: 'shipping_packaging',
+        reviews: [
+          { text: 'Arrived 4 days late and packaging seal was broken during transit.', tag: 'shipping_packaging', score: 0.29 },
+          { text: 'Stopped brewing intermittently after three weeks; quality control feels inconsistent.', tag: 'quality_defect', score: 0.25 },
+          { text: 'Makes rich crema espresso quickly every morning when discounted.', tag: 'none', score: 0.81 }
+        ]
+      }
+    };
+
+    const state = {
+      currentSkuKey: 'sony',
+      basePrice: 349,
+      unitCost: 210,
+      compPrice: 339,
+      sentiment: 0.58,
+      marginFloor: 22,
+      sessionViews: 6.4,
+      cartAdds7d: 42,
+      topFriction: 'Battery & Hinge Stress',
+      frictionTag: 'quality_defect',
+      reviews: [],
+      lastOptimalPrice: null
+    };
+
+    const ISSUE_LEXICON = {
+      price_value: ['overpriced', 'expensive', 'price', 'pricier', 'costly', 'cheaper', 'discount', 'promo', 'justify'],
+      shipping_packaging: ['late', 'crushed', 'shipping', 'delivery', 'tracking', 'packaging', 'seal', 'box', 'arrived'],
+      quality_defect: ['drains', 'drain', 'stopped', 'defect', 'loose', 'broken', 'battery', 'leak', 'flimsy', 'noisy']
+    };
+    const POSITIVE_LEXICON = ['exceeds', 'seamlessly', 'worth', 'fast', 'great', 'reliable', 'sleek', 'flawless', 'unbeatable', 'amazing', 'love', 'best'];
+
+    function extractReviewSignals(text) {
+      const lower = text.toLowerCase();
+      let detectedTag = 'none';
+      let negHits = 0;
+      for (const [category, words] of Object.entries(ISSUE_LEXICON)) {
+        const hits = words.filter(w => lower.includes(w)).length;
+        if (hits > 0) { detectedTag = category; negHits += hits; }
+      }
+      const posHits = POSITIVE_LEXICON.filter(w => lower.includes(w)).length;
+      const rawScore = 0.52 + (0.16 * posHits) - (0.21 * negHits);
+      const sentimentScore = Number(Math.max(0.05, Math.min(0.96, rawScore)).toFixed(2));
+      const labelMap = { price_value: 'Price-Value Resistance', shipping_packaging: 'Logistics & Packaging', quality_defect: 'Product Quality Defect', none: 'Positive Brand Equity' };
+      return { sentimentScore, tag: detectedTag, frictionLabel: labelMap[detectedTag] };
+    }
+
+    function predictConversionAndShap(offeredPrice, params) {
+      const { basePrice, compPrice, sentiment, sessionViews, cartAdds7d } = params;
+      const discountPct = ((basePrice - offeredPrice) / basePrice) * 100;
+      const compRatio = offeredPrice / Math.max(compPrice, 1);
+      const painSeverity = Math.max(0.05, 1 - sentiment);
+
+      const baseIntercept = -1.65;
+      const contribDiscount = 0.036 * discountPct;
+      const contribCompRatio = -2.35 * (compRatio - 1.0);
+      const contribSentiment = 1.75 * (sentiment - 0.50);
+      const contribPain = -0.65 * (painSeverity - 0.40);
+      const contribIntent = 0.06 * (Math.min(sessionViews, 10) - 5.0) + 0.004 * (cartAdds7d - 30);
+
+      const logit = baseIntercept + contribDiscount + contribCompRatio + contribSentiment + contribPain + contribIntent;
+      const prob = 1.0 / (1.0 + Math.exp(-logit));
+
+      return {
+        prob: Math.max(0.01, Math.min(0.92, prob)),
+        shap: [
+          { feature: 'Competitor Price Ratio', value: Number(contribCompRatio.toFixed(3)), raw: `${compRatio.toFixed(2)}x` },
+          { feature: 'AI Review Sentiment', value: Number(contribSentiment.toFixed(3)), raw: sentiment.toFixed(2) },
+          { feature: 'Price Discount Depth', value: Number(contribDiscount.toFixed(3)), raw: `${discountPct >= 0 ? '+' : ''}${discountPct.toFixed(1)}%` },
+          { feature: 'Pain-Point Severity', value: Number(contribPain.toFixed(3)), raw: painSeverity.toFixed(2) },
+          { feature: 'Live Session Intent', value: Number(contribIntent.toFixed(3)), raw: `${sessionViews.toFixed(1)} views` }
+        ]
+      };
+    }
+
+    function runOptimizationSimulation() {
+      const { basePrice, unitCost, compPrice, sentiment, marginFloor } = state;
+      const minAllowedPrice = unitCost / Math.max(0.05, 1 - marginFloor / 100);
+
+      const steps = 22;
+      const curve = [];
+      for (let i = 0; i < steps; i++) {
+        const mult = 0.80 + (0.35 * i) / (steps - 1);
+        const price = Number((basePrice * mult).toFixed(2));
+        const { prob, shap } = predictConversionAndShap(price, state);
+        const unitMarginPct = ((price - unitCost) / Math.max(price, 0.01)) * 100;
+        const grossProfit100 = (price - unitCost) * prob * 100;
+        const meetsFloor = price >= minAllowedPrice && price > unitCost;
+
+        curve.push({ price, mult, discountPct: (1 - mult) * 100, prob, unitMarginPct, grossProfit100, meetsFloor, shap });
+      }
+
+      const baseEval = predictConversionAndShap(basePrice, state);
+      const baseProfit100 = (basePrice - unitCost) * baseEval.prob * 100;
+
+      const validPoints = curve.filter(pt => pt.meetsFloor);
+      let optimalPoint;
+      let guardrailTriggered = false;
+
+      if (validPoints.length > 0) {
+        optimalPoint = validPoints.reduce((best, curr) => curr.grossProfit100 > best.grossProfit100 ? curr : best, validPoints[0]);
+        const unconstrainedBest = curve.reduce((best, curr) => curr.grossProfit100 > best.grossProfit100 ? curr : best, curve[0]);
+        if (unconstrainedBest.price < optimalPoint.price - 0.5) guardrailTriggered = true;
+      } else {
+        const forcedPrice = Number(Math.max(minAllowedPrice, unitCost * 1.05).toFixed(2));
+        const forcedEval = predictConversionAndShap(forcedPrice, state);
+        optimalPoint = { price: forcedPrice, discountPct: ((basePrice - forcedPrice) / basePrice) * 100, prob: forcedEval.prob, unitMarginPct: ((forcedPrice - unitCost) / forcedPrice) * 100, grossProfit100: (forcedPrice - unitCost) * forcedEval.prob * 100, meetsFloor: true, shap: forcedEval.shap };
+        guardrailTriggered = true;
+      }
+
+      return { curve, baseEval, baseProfit100, optimalPoint, minAllowedPrice, guardrailTriggered };
+    }
+
+    function synthesizeAgentStrategy(simResult) {
+      const { optimalPoint, baseEval, baseProfit100, guardrailTriggered, minAllowedPrice } = simResult;
+      const priceDeltaPct = ((optimalPoint.price - state.basePrice) / state.basePrice) * 100;
+      const profitLift = optimalPoint.grossProfit100 - baseProfit100;
+      const convLiftPct = (optimalPoint.prob - baseEval.prob) * 100;
+
+      let strategyName = '';
+      let rationale = '';
+      let confidence = 94.2;
+
+      if (guardrailTriggered && optimalPoint.price <= minAllowedPrice + 1.5) {
+        strategyName = 'Margin-Floor Guardrail Hold';
+        confidence = 97.1;
+        rationale = `Elasticity signals suggest deeper discounting due to "${state.topFriction}" (sentiment ${state.sentiment.toFixed(2)}), but CFO Guardrails locked price at $${optimalPoint.price.toFixed(2)} to protect your ${state.marginFloor}% minimum gross margin floor ($${minAllowedPrice.toFixed(2)} min).`;
+      } else if (priceDeltaPct < -1.5) {
+        strategyName = 'Defensive Conversion Recovery';
+        confidence = 94.2;
+        rationale = `Customer sentiment (${state.sentiment.toFixed(2)}/1.00) reflects "${state.topFriction}" while competitor sits at $${state.compPrice}. Recommending a targeted ${Math.abs(priceDeltaPct).toFixed(1)}% discount to $${optimalPoint.price.toFixed(2)}, lifting conversion by ${convLiftPct >= 0 ? '+' : ''}${convLiftPct.toFixed(1)}% and generating +$${Math.max(0, profitLift).toFixed(2)} incremental profit per 100 visits.`;
+      } else if (priceDeltaPct > 1.5) {
+        strategyName = 'Margin Expansion (Dynamic Markup)';
+        confidence = 95.6;
+        rationale = `Strong brand sentiment (${state.sentiment.toFixed(2)}/1.00) and favorable competitor spread ($${state.compPrice} vs $${state.basePrice}) unlock pricing power. Raising price by +${priceDeltaPct.toFixed(1)}% to $${optimalPoint.price.toFixed(2)} expands unit margin to ${optimalPoint.unitMarginPct.toFixed(1)}% while maximizing net profit.`;
+      } else {
+        strategyName = 'Equilibrium Hold & Targeted UX Voucher';
+        confidence = 92.4;
+        rationale = `Current retail price ($${optimalPoint.price.toFixed(2)}) sits at the profit-maximizing equilibrium (${optimalPoint.unitMarginPct.toFixed(1)}% margin). Recommend holding list price and deploying an exit-intent assistant addressing "${state.topFriction}".`;
+      }
+
+      return { strategyName, rationale, confidence, priceDeltaPct, profitLift, convLiftPct, actionCode: `EXEC_PRICE_SET_${optimalPoint.price.toFixed(2)}` };
+    }
+
+    function renderElasticityChart(simResult) {
+      const svg = document.getElementById('elasticityChart');
+      const { curve, optimalPoint, minAllowedPrice } = simResult;
+      const W = 720, H = 280;
+      const pad = { top: 20, right: 54, bottom: 32, left: 56 };
+      const plotW = W - pad.left - pad.right;
+      const plotH = H - pad.top - pad.bottom;
+
+      const minP = curve[0].price;
+      const maxP = curve[curve.length - 1].price;
+      const maxProfit = Math.max(...curve.map(d => d.grossProfit100), 100) * 1.15;
+      const maxConv = Math.max(...curve.map(d => d.prob * 100), 10) * 1.2;
+
+      const xScale = p => pad.left + ((p - minP) / Math.max(maxP - minP, 1)) * plotW;
+      const yProfitScale = prof => pad.top + plotH - (Math.max(0, prof) / maxProfit) * plotH;
+      const yConvScale = c => pad.top + plotH - (Math.max(0, c) / maxConv) * plotH;
+
+      let gridHtml = '';
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH * i) / 4;
+        const profVal = Math.round(maxProfit * (1 - i / 4));
+        const convVal = (maxConv * (1 - i / 4)).toFixed(1);
+        gridHtml += `
+          <line x1="${pad.left}" y1="${y}" x2="${W - pad.right}" y2="${y}" stroke="#1e293b" stroke-dasharray="2 2" stroke-width="1" />
+          <text x="${pad.left - 6}" y="${y + 3}" text-anchor="end" fill="#64748b" font-size="9.5" font-family="JetBrains Mono">$${profVal}</text>
+          <text x="${W - pad.right + 6}" y="${y + 3}" text-anchor="start" fill="#38bdf8" font-size="9.5" font-family="JetBrains Mono">${convVal}%</text>
+        `;
+      }
+
+      let floorZoneHtml = '';
+      if (minAllowedPrice > minP) {
+        const floorX = Math.min(W - pad.right, Math.max(pad.left, xScale(minAllowedPrice)));
+        floorZoneHtml = `
+          <rect x="${pad.left}" y="${pad.top}" width="${floorX - pad.left}" height="${plotH}" fill="rgba(244, 63, 94, 0.07)" />
+          <line x1="${floorX}" y1="${pad.top}" x2="${floorX}" y2="${pad.top + plotH}" stroke="#f43f5e" stroke-width="1" stroke-dasharray="3 2" />
+        `;
+      }
+
+      const profitPts = curve.map(d => `${xScale(d.price).toFixed(1)},${yProfitScale(d.grossProfit100).toFixed(1)}`);
+      const convPts = curve.map(d => `${xScale(d.price).toFixed(1)},${yConvScale(d.prob * 100).toFixed(1)}`);
+
+      const areaPath = `M ${xScale(curve[0].price).toFixed(1)},${pad.top + plotH} L ${profitPts.join(' L ')} L ${xScale(curve[curve.length - 1].price).toFixed(1)},${pad.top + plotH} Z`;
+      const profitLinePath = `M ${profitPts.join(' L ')}`;
+      const convLinePath = `M ${convPts.join(' L ')}`;
+
+      const baseX = xScale(state.basePrice);
+      const optX = xScale(optimalPoint.price);
+      const optY = yProfitScale(optimalPoint.grossProfit100);
+
+      const tickIndices = [0, 5, 10, 15, 21];
+      const xLabelsHtml = tickIndices.map(idx => {
+        const pt = curve[idx];
+        return `<text x="${xScale(pt.price)}" y="${H - 8}" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="JetBrains Mono">$${pt.price.toFixed(0)}</text>`;
+      }).join('');
+
+      const hoverDotsHtml = curve.map((d, idx) => {
+        const cx = xScale(d.price);
+        const cy = yProfitScale(d.grossProfit100);
+        return `<circle class="chart-pt cursor-pointer" data-idx="${idx}" cx="${cx}" cy="${cy}" r="5" fill="transparent" stroke="transparent" />`;
+      }).join('');
+
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#10b981" stop-opacity="0.22" />
+            <stop offset="100%" stop-color="#10b981" stop-opacity="0.0" />
+          </linearGradient>
+        </defs>
+        ${gridHtml}
+        ${floorZoneHtml}
+        <path d="${areaPath}" fill="url(#profitGrad)" />
+        <path d="${profitLinePath}" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" />
+        <path d="${convLinePath}" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="4 3" />
+
+        <!-- Base Price Line -->
+        <line x1="${baseX}" y1="${pad.top}" x2="${baseX}" y2="${pad.top + plotH}" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2" />
+        <text x="${baseX}" y="${pad.top - 6}" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="JetBrains Mono">Base $${state.basePrice}</text>
+
+        <!-- Optimal Point Marker -->
+        <line x1="${optX}" y1="${optY}" x2="${optX}" y2="${pad.top + plotH}" stroke="#c084fc" stroke-width="1.2" stroke-dasharray="2 2" />
+        <circle cx="${optX}" cy="${optY}" r="5.5" fill="#a855f7" stroke="#0f172a" stroke-width="1.5" />
+        <rect x="${Math.min(W - 135, Math.max(pad.left, optX - 48))}" y="${Math.max(2, optY - 24)}" width="96" height="17" rx="3" fill="#1e1b4b" stroke="#7c3aed" stroke-width="1" />
+        <text x="${Math.min(W - 87, Math.max(pad.left + 48, optX))}" y="${Math.max(13, optY - 12)}" text-anchor="middle" fill="#ede9fe" font-size="9" font-weight="600" font-family="JetBrains Mono">Opt $${optimalPoint.price.toFixed(0)}</text>
+
+        ${xLabelsHtml}
+        ${hoverDotsHtml}
+      `;
+
+      const tooltip = document.getElementById('chartTooltip');
+      svg.querySelectorAll('.chart-pt').forEach(dot => {
+        dot.addEventListener('mouseenter', e => {
+          const d = curve[Number(e.target.dataset.idx)];
+          tooltip.innerHTML = `
+            <div class="text-corporate-100 font-semibold mb-0.5">Price: $${d.price.toFixed(2)} (${d.discountPct >= 0 ? '-' : '+'}${Math.abs(d.discountPct).toFixed(1)}%)</div>
+            <div class="text-emerald-400">Gross Profit/100: $${d.grossProfit100.toFixed(2)}</div>
+            <div class="text-sky-400">Conversion: ${(d.prob * 100).toFixed(1)}%</div>
+            <div class="text-corporate-300">Unit Margin: ${d.unitMarginPct.toFixed(1)}%</div>
+          `;
+          tooltip.style.opacity = '1';
+          const rect = svg.getBoundingClientRect();
+          const cx = Number(e.target.getAttribute('cx')) / W * rect.width;
+          const cy = Number(e.target.getAttribute('cy')) / H * rect.height;
+          tooltip.style.left = `${Math.min(rect.width - 180, Math.max(10, cx - 75))}px`;
+          tooltip.style.top = `${Math.max(10, cy - 78)}px`;
+        });
+        dot.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+      });
+    }
+
+    function renderShapChart(shapItems) {
+      const container = document.getElementById('shapContainer');
+      const maxAbs = Math.max(...shapItems.map(s => Math.abs(s.value)), 0.35);
+
+      container.innerHTML = shapItems.map(item => {
+        const isPos = item.value >= 0;
+        const pctWidth = Math.min(100, (Math.abs(item.value) / maxAbs) * 100);
+        const barColor = isPos ? 'bg-emerald-500' : 'bg-rose-500';
+        const textColor = isPos ? 'text-emerald-400' : 'text-rose-400';
+
+        return `
+          <div class="text-xs">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-corporate-300 font-medium">${item.feature} <span class="text-[10px] font-mono text-corporate-500">(${item.raw})</span></span>
+              <span class="font-mono font-semibold ${textColor}">${isPos ? '+' : ''}${item.value.toFixed(3)}</span>
+            </div>
+            <div class="w-full h-1.5 bg-corporate-950 rounded overflow-hidden flex items-center">
+              <div class="w-1/2 flex justify-end pr-0.5 border-r border-corporate-800 h-full">
+                ${!isPos ? `<div class="h-full ${barColor} rounded-l transition-all" style="width: ${pctWidth}%"></div>` : ''}
+              </div>
+              <div class="w-1/2 flex justify-start pl-0.5 h-full">
+                ${isPos ? `<div class="h-full ${barColor} rounded-r transition-all" style="width: ${pctWidth}%"></div>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderRagPanel() {
+      const list = document.getElementById('ragQuotesList');
+      document.getElementById('ragTagBadge').textContent = state.frictionTag;
+
+      list.innerHTML = state.reviews.map(r => {
+        const badgeStyle = r.tag === 'none'
+          ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+          : 'bg-rose-500/10 text-rose-300 border-rose-500/20';
+        return `
+          <div class="bg-corporate-950 border border-corporate-800 rounded p-2 text-xs">
+            <p class="text-corporate-200 italic leading-snug">"${r.text}"</p>
+            <div class="mt-1.5 flex items-center justify-between text-[10px] font-mono">
+              <span class="px-1.5 py-0.5 rounded border ${badgeStyle}">${r.tag}</span>
+              <span class="text-corporate-400">Sentiment: <strong class="text-corporate-200">${r.score.toFixed(2)}</strong></span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function appendAuditLog(source, strategy, price, profit100) {
+      const tbody = document.getElementById('auditLogBody');
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+
+      const row = document.createElement('tr');
+      row.className = 'hover:bg-corporate-850/50 transition-colors';
+      row.innerHTML = `
+        <td class="py-1.5 pr-3 text-corporate-500">${timeStr}</td>
+        <td class="py-1.5 pr-3"><span class="px-1.5 py-0.5 rounded bg-corporate-9mt text-sky-400 text-[10px] bg-corporate-900 border border-corporate-800">${source}</span></td>
+        <td class="py-1.5 pr-3 text-corporate-200">${strategy}</td>
+        <td class="py-1.5 pr-3 font-semibold text-corporate-50">$${price.toFixed(2)}</td>
+        <td class="py-1.5 text-right text-emerald-400 font-semibold">$${profit100.toFixed(2)}</td>
+      `;
+      tbody.prepend(row);
+      if (tbody.children.length > 25) tbody.removeChild(tbody.lastChild);
+    }
+
+    function updateDashboard(logSource = null) {
+      document.getElementById('valBasePrice').textContent = `$${state.basePrice}`;
+      document.getElementById('valUnitCost').textContent = `$${state.unitCost}`;
+      document.getElementById('valCompPrice').textContent = `$${state.compPrice}`;
+      document.getElementById('valSentiment').textContent = state.sentiment.toFixed(2);
+      document.getElementById('valMarginFloor').textContent = `${state.marginFloor}%`;
+
+      const simResult = runOptimizationSimulation();
+      const agentOutput = synthesizeAgentStrategy(simResult);
+      const { optimalPoint, baseEval, baseProfit100, guardrailTriggered } = simResult;
+
+      document.getElementById('kpiOptimalPrice').textContent = `$${optimalPoint.price.toFixed(2)}`;
+      document.getElementById('kpiBasePriceRef').textContent = `$${state.basePrice.toFixed(2)}`;
+
+      const deltaBadge = document.getElementById('kpiPriceDeltaBadge');
+      const deltaSign = agentOutput.priceDeltaPct >= 0 ? '+' : '';
+      deltaBadge.textContent = `${deltaSign}${agentOutput.priceDeltaPct.toFixed(1)}% vs Base`;
+      deltaBadge.className = `font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+        agentOutput.priceDeltaPct < 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+      }`;
+
+      document.getElementById('kpiActualMargin').textContent = `${optimalPoint.unitMarginPct.toFixed(1)}%`;
+      document.getElementById('kpiOptimalConv').textContent = `${(optimalPoint.prob * 100).toFixed(1)}%`;
+      document.getElementById('kpiBaseConvRef').textContent = `Base: ${(baseEval.prob * 100).toFixed(1)}%`;
+      document.getElementById('kpiConvLiftBadge').textContent = `${agentOutput.convLiftPct >= 0 ? '+' : ''}${agentOutput.convLiftPct.toFixed(1)}% Lift`;
+
+      document.getElementById('kpiOptimalProfit').textContent = `$${optimalPoint.grossProfit100.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('kpiBaseProfitRef').textContent = `$${baseProfit100.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('kpiProfitLiftBadge').textContent = `${agentOutput.profitLift >= 0 ? '+' : '-'}$${Math.abs(agentOutput.profitLift).toFixed(2)}`;
+      document.getElementById('kpiCogsRef').textContent = `$${state.unitCost}`;
+
+      const floorStatusEl = document.getElementById('kpiFloorStatus');
+      floorStatusEl.textContent = guardrailTriggered ? 'Guardrail Active' : 'Floor OK';
+      floorStatusEl.className = guardrailTriggered ? 'text-amber-400 font-medium' : 'text-emerald-400 font-medium';
+
+      document.getElementById('kpiSentimentScore').textContent = state.sentiment.toFixed(2);
+      document.getElementById('kpiTopFriction').textContent = state.topFriction;
+
+      const sentBadge = document.getElementById('kpiSentimentBadge');
+      if (state.sentiment >= 0.70) {
+        sentBadge.textContent = 'High Equity';
+        sentBadge.className = 'font-mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20';
+      } else if (state.sentiment >= 0.45) {
+        sentBadge.textContent = 'Moderate Friction';
+        sentBadge.className = 'font-mono text-[11px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20';
+      } else {
+        sentBadge.textContent = 'Critical Risk';
+        sentBadge.className = 'font-mono text-[11px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20';
+      }
+
+      document.getElementById('agentStrategyTitle').textContent = agentOutput.strategyName;
+      document.getElementById('agentRationaleText').textContent = agentOutput.rationale;
+      document.getElementById('agentConfidenceBadge').textContent = `Confidence: ${agentOutput.confidence}%`;
+      document.getElementById('agentActionTag').textContent = agentOutput.actionCode;
+
+      renderElasticityChart(simResult);
+      renderShapChart(optimalPoint.shap);
+      renderRagPanel();
+
+      if (logSource) {
+        appendAuditLog(logSource, agentOutput.strategyName, optimalPoint.price, optimalPoint.grossProfit100);
+      }
+      state.lastOptimalPrice = optimalPoint.price;
+    }
+
+    function loadSku(skuKey) {
+      const sku = SKU_DATA[skuKey];
+      state.currentSkuKey = skuKey;
+      state.basePrice = sku.basePrice;
+      state.unitCost = sku.unitCost;
+      state.compPrice = sku.compPrice;
+      state.sentiment = sku.sentiment;
+      state.marginFloor = sku.marginFloor;
+      state.sessionViews = sku.sessionViews;
+      state.cartAdds7d = sku.cartAdds7d;
+      state.topFriction = sku.topFriction;
+      state.frictionTag = sku.frictionTag;
+      state.reviews = [...sku.reviews];
+
+      document.getElementById('sliderBasePrice').value = sku.basePrice;
+      document.getElementById('sliderUnitCost').value = sku.unitCost;
+      document.getElementById('sliderCompPrice').value = sku.compPrice;
+      document.getElementById('sliderSentiment').value = sku.sentiment;
+      document.getElementById('sliderMarginFloor').value = sku.marginFloor;
+
+      updateDashboard('SKU_LOAD');
+    }
+
+    document.getElementById('skuSelector').addEventListener('change', e => loadSku(e.target.value));
+    document.getElementById('refreshPipelineBtn').addEventListener('click', () => {
+      updateDashboard('PIPELINE_SYNC');
+    });
+
+    document.getElementById('sliderBasePrice').addEventListener('input', e => { state.basePrice = Number(e.target.value); updateDashboard(); });
+    document.getElementById('sliderUnitCost').addEventListener('input', e => { state.unitCost = Math.min(Number(e.target.value), state.basePrice - 5); e.target.value = state.unitCost; updateDashboard(); });
+    document.getElementById('sliderCompPrice').addEventListener('input', e => { state.compPrice = Number(e.target.value); updateDashboard(); });
+    document.getElementById('sliderSentiment').addEventListener('input', e => { state.sentiment = Number(e.target.value); updateDashboard(); });
+    document.getElementById('sliderMarginFloor').addEventListener('input', e => { state.marginFloor = Number(e.target.value); updateDashboard(); });
+
+    document.getElementById('analyzeReviewBtn').addEventListener('click', () => {
+      const input = document.getElementById('customReviewInput');
+      const text = input.value.trim();
+      if (!text) return;
+      const extracted = extractReviewSignals(text);
+      state.sentiment = extracted.sentimentScore;
+      state.frictionTag = extracted.tag;
+      state.topFriction = extracted.frictionLabel;
+      document.getElementById('sliderSentiment').value = extracted.sentimentScore;
+
+      state.reviews.unshift({ text, tag: extracted.tag, score: extracted.sentimentScore });
+      if (state.reviews.length > 4) state.reviews.pop();
+
+      document.getElementById('nlpFeedbackLine').innerHTML = `NLP Tag: <span class="text-sky-300">${extracted.tag}</span> | Sentiment: <strong class="text-emerald-400">${extracted.sentimentScore.toFixed(2)}</strong>`;
+      input.value = '';
+      updateDashboard('NLP_INGEST');
+    });
+
+    document.getElementById('deployPolicyBtn').addEventListener('click', () => {
+      const btn = document.getElementById('deployPolicyBtn');
+      btn.textContent = '✓ Deployed to EKS API';
+      btn.className = 'bg-sky-600 text-white font-medium px-3 py-1.5 rounded text-xs transition';
+      appendAuditLog('API_DEPLOY', `Published $${state.lastOptimalPrice.toFixed(2)}`, state.lastOptimalPrice, 0);
+      setTimeout(() => {
+        btn.textContent = 'Publish to Storefront API';
+        btn.className = 'bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded text-xs transition flex items-center space-x-1.5 shadow-sm';
+      }, 1600);
+    });
+
+    document.getElementById('clearLogBtn').addEventListener('click', () => {
+      document.getElementById('auditLogBody').innerHTML = '';
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSku('sony');
+      appendAuditLog('INIT', 'Cluster initialized & model artifact loaded', 349.00, 1516.20);
+    });
+  </script>
+</body>
+</html>
