@@ -33,3 +33,7 @@ Trang này cần dữ liệu từ `python -m src.connectors.openprices`, `python
 
 Dashboard chỉ lắng nghe ở `127.0.0.1` (cấu hình trong `.streamlit/config.toml`); hãy mở `http://127.0.0.1:8501`.
 Mặc định của Streamlit là mở trên mọi giao diện mạng và dashboard này không có xác thực, nên đừng bỏ cấu hình đó.
+
+## Kiểm chứng bằng dữ liệu thật
+`python -m src.real_elasticity` ước lượng độ nhạy giá từ giao dịch thật (Online Retail II, CC BY 4.0) và đối chiếu với mô phỏng.
+Kết quả và đánh giá nguồn: `docs/REAL_DATA_VALIDATION.md`.
