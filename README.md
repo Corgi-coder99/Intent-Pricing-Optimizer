@@ -23,3 +23,10 @@ python -m src.connectors.openprices --currencies GBP EUR --countries GB FR DE IE
 python -m src.pipeline run
 ```
 Nguồn: Open Prices, Open Food Facts contributors, giấy phép ODbL. Xem `docs/SECURITY.md` và `docs/DATA_PIPELINE.md`.
+
+## Dashboard
+```bash
+python -m streamlit run app/streamlit_app.py
+```
+Trang chính: giá, chuyển đổi, đề xuất của agent. Trang "So sanh quoc gia" (thanh bên): so sánh giá và biên giả định giữa các nước EU/UK.
+Trang này cần dữ liệu từ `python -m src.connectors.openprices`, `python -m src.connectors.ecb_fx` và `python -m src.pipeline run`.
