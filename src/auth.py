@@ -38,9 +38,15 @@ def _load(path: Path) -> Dict[str, dict]:
     return read_json(path, {})
 
 
+def _marker(path: Path) -> Path:
+    return path.with_name(path.name + ".initialised")
+
+
 def has_keys(path: Optional[Path] = None) -> bool:
     path = path or KEY_FILE
-    return bool(_load(path))        # once the store has ever held a key (even disabled ones) it NEVER falls back to open mode
+    # once a key has ever been created (marker file, or any entry, even disabled) the API NEVER falls back to open mode,
+    # even if the key file is later deleted or emptied (then nobody can authenticate until a new key is created)
+    return bool(_load(path)) or _marker(path).exists()
 
 
 def create_key(name: str, role: str = "user", path: Optional[Path] = None) -> str:
@@ -58,6 +64,7 @@ def create_key(name: str, role: str = "user", path: Optional[Path] = None) -> st
                     "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(path, keys)
+    _marker(path).touch()
     return f"{key_id}.{secret}"
 
 

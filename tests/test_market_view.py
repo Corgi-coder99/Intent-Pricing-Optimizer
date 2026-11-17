@@ -51,7 +51,8 @@ def test_load_market_none_without_gold_and_reads_names_coords_fx(tmp_path):
     pd.DataFrame([{"rate_date": "2026-01-10", "currency": "GBP", "eur_per_unit": 1.2}]).to_csv(layout.landing / "fx.csv", index=False)
     assert run_pipeline(layout, isolate=False, policy=Policy())["ok"]
     d = mv.load_market(tmp_path)
-    assert d["names"]["3017620422003"] == "Spread" and d["gbp"] == {"eur_per_unit": 1.2, "rate_date": "2026-01-10"}
+    assert d["names"]["3017620422003"] == "Spread"
+    assert d["gbp"]["eur_per_unit"] == 1.2 and d["gbp"]["rate_date"] == "2026-01-10" and d["gbp"]["age_days"] > 7
     assert list(d["coords"]["country"]) == ["FR"] and d["coords"]["lat"].iloc[0] == pytest.approx(49.5)
 
 

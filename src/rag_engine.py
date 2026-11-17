@@ -23,7 +23,7 @@ class ReviewRAGEngine:
     ) -> Dict[str, object]:
         prod_mask = (self.df["product_id"] == product_id).values
         if region and "region" in self.df.columns:
-            prod_mask &= (self.df["region"] == region).values
+            prod_mask = prod_mask & (self.df["region"] == region).to_numpy()
         if not np.any(prod_mask):
             return {"top_complaints": [], "evidence_quotes": []}
 

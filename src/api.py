@@ -11,6 +11,7 @@ import json
 import logging
 import logging.handlers
 import os
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -98,19 +99,26 @@ def client_ip(request: Request) -> str:
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
-    """Limits body size, per-IP rate, failed-auth attempts; adds security headers and an audit log (never logs content)."""
+    """Limits body size, per-IP rate; adds security headers and an audit log (never logs content), even for server errors."""
     t0 = time.monotonic()
     rid = uuid.uuid4().hex
     who = client_ip(request)
     request.state.principal = None
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+    if declared is not None and not declared.isdigit():
+        response = JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
+    elif declared and int(declared) > MAX_BODY_BYTES:
         response = JSONResponse({"detail": "Request body too large"}, status_code=413)
-    elif _over(_hits, who, RATE_LIMIT_PER_MIN) or _over(_fails, who, AUTH_FAIL_LIMIT_PER_MIN):
+    elif request.method in ("POST", "PUT", "PATCH") and declared is None:
+        response = JSONResponse({"detail": "Content-Length required"}, status_code=411)   # a chunked body would bypass the size cap
+    elif _over(_hits, who, RATE_LIMIT_PER_MIN):
         response = JSONResponse({"detail": "Too many requests"}, status_code=429, headers={"Retry-After": "60"})
     else:
         _hits[who].append(time.monotonic())
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:                      # unhandled error: still send security headers and write an audit record
+            response = JSONResponse({"detail": "Internal server error"}, status_code=500)
         if response.status_code == 401:
             _fails[who].append(time.monotonic())
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -144,7 +152,15 @@ def authenticate_request(x_api_key: Optional[str]) -> Principal:
 
 def require_role(role: str):
     def dep(request: Request, x_api_key: Optional[str] = Header(default=None)) -> Principal:
-        principal = authenticate_request(x_api_key)
+        try:
+            principal = authenticate_request(x_api_key)
+        except HTTPException as exc:
+            # Too many wrong keys from one IP: throttle further WRONG keys only. Valid keys always pass, so an attacker
+            # sharing an IP (office, reverse proxy) cannot lock out legitimate users.
+            if exc.status_code == 401 and _over(_fails, client_ip(request), AUTH_FAIL_LIMIT_PER_MIN):
+                raise HTTPException(status_code=429, detail="Too many failed authentication attempts",
+                                    headers={"Retry-After": "60"})
+            raise
         request.state.principal = principal
         if ROLES[principal.role] < ROLES[role]:
             raise HTTPException(status_code=403, detail="Insufficient role")
@@ -211,13 +227,20 @@ _review_cache: Dict[str, Dict[str, object]] = {}
 _CACHE_MAX = 5000
 
 
+_cache_lock = threading.Lock()
+
+
 def analyze_cached(text: str) -> Dict[str, object]:
-    """Each distinct review is analysed only once (saves tokens when the LLM is on)."""
-    if text not in _review_cache:
-        if len(_review_cache) >= _CACHE_MAX:
-            _review_cache.pop(next(iter(_review_cache)))
-        _review_cache[text] = state["extractor"].analyze_single_review(text)  # type: ignore[union-attr]
-    return dict(_review_cache[text])
+    """Each distinct review is analysed only once (saves tokens when the LLM is on). Thread-safe."""
+    with _cache_lock:
+        hit = _review_cache.get(text)
+    if hit is None:
+        hit = state["extractor"].analyze_single_review(text)  # type: ignore[union-attr]
+        with _cache_lock:
+            if len(_review_cache) >= _CACHE_MAX:
+                _review_cache.pop(next(iter(_review_cache)), None)
+            _review_cache[text] = hit
+    return dict(hit)
 
 
 @app.post("/v1/review/analyze", dependencies=[Depends(require_key)])

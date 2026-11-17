@@ -16,7 +16,7 @@ from src.agent_decision import PricingDecisionAgent, money, number
 from src.analytics import ALL, OUR_LABEL
 from src.config import MODEL_ARTIFACT_PATH, PROCESSED_DATASET_PATH
 from src.data_generator import PRODUCT_CATALOG
-from src.i18n import category_label, complaint_label, streamlit_lang, t
+from src.i18n import category_label, complaint_label, fr_typography, streamlit_lang, t
 from src.ml_pricing_model import DynamicPricingModel
 from src.rag_engine import ReviewRAGEngine
 from src.train_pipeline import run_full_pipeline
@@ -63,10 +63,10 @@ def kpi(label, value, color, sub=""):
 def gauge(title, value, lo, hi, fmt, steps, color=BLUE):
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=value, number={"valueformat": fmt, "font": {"size": 26}},
-        title={"text": title, "font": {"size": 13}},
+        title={"text": title, "font": {"size": 12}},
         gauge={"axis": {"range": [lo, hi]}, "bar": {"color": color}, "steps": steps},
     ))
-    fig.update_layout(height=190, margin=dict(l=15, r=15, t=40, b=5))
+    fig.update_layout(height=190, margin=dict(l=28, r=28, t=45, b=5))
     if lang == "fr":
         fig.update_layout(separators=", ")      # decimal comma
     return fig
@@ -77,6 +77,16 @@ def show(fig):
     if lang == "fr":
         fig.update_layout(separators=", ")
     st.plotly_chart(fig, width="stretch")
+
+
+def loc(text: str) -> str:
+    """French typography (non-breaking spaces) for strings composed in the app; English untouched."""
+    return fr_typography(text) if lang == "fr" else text
+
+
+def pct(value: float, signed: bool = False) -> str:
+    sign = ("+" if value >= 0 else "−") if signed else ""
+    return f"{sign}{number(abs(value) if signed else value, lang)}" + ("\u00a0%" if lang == "fr" else "%")
 
 
 def signed_money(value: float, decimals: int = 0) -> str:
@@ -131,8 +141,9 @@ k = st.columns(5)
 k[0].markdown(kpi(t("kpi_sessions", lang), f"{n_sessions:,}".replace(",", " " if lang == "fr" else ","), NAVY), unsafe_allow_html=True)
 k[1].markdown(kpi(t("kpi_conversion", lang), number(conv_rate * 100, lang) + (" %" if lang == "fr" else "%"), BLUE), unsafe_allow_html=True)
 k[2].markdown(kpi(t("kpi_revenue", lang), money(revenue, lang, 0), GREEN), unsafe_allow_html=True)
+disc_pct = float(best["discount_pct"])
 k[3].markdown(kpi(t("kpi_price", lang), decision["recommended_price"], ORANGE,
-                  sub=t("kpi_discount", lang, discount=decision["optimal_discount"])), unsafe_allow_html=True)
+                  sub=t("kpi_discount" if disc_pct >= 0 else "kpi_markup", lang, discount=pct(abs(disc_pct)))), unsafe_allow_html=True)
 k[4].markdown(kpi(t("kpi_gain", lang), signed_money(rev_lift), RED if rev_lift < 0 else GREEN), unsafe_allow_html=True)
 
 st.write("")
@@ -148,7 +159,7 @@ g[2].plotly_chart(gauge(t("g_price_ratio", lang), opt_price / avg_comp, 0.6, 1.4
 g[3].plotly_chart(gauge(t("g_pain", lang), severity, 0, 1, ".2f",
                         [{"range": [0, .3], "color": "#d4eedf"}, {"range": [.3, .6], "color": "#fbe9c6"}, {"range": [.6, 1], "color": "#f6d5d5"}], RED))
 
-st.markdown(f"<div class='agent'><b>🤖 {t('agent', lang)} — {decision['strategy_label']}:</b> {decision['executive_summary']}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='agent'><b>🤖 {t('agent', lang)} — {decision['strategy_label']}{loc(' :') if lang == 'fr' else ':'}</b> {decision['executive_summary']}</div>", unsafe_allow_html=True)
 st.write("")
 
 # ---------------- ROW: CURVE + COMPETITORS ----------------
@@ -160,7 +171,7 @@ with c1:
                          marker_color=[ORANGE if p == opt_price else "#b9d3ea" for p in sim["offered_price"]]), secondary_y=False)
     fig.add_trace(go.Scatter(x=sim["offered_price"], y=sim["conversion_prob"] * 100, name=t("conv_pct", lang),
                              mode="lines+markers", line=dict(color=NAVY, width=3)), secondary_y=True)
-    fig.add_vline(x=comp_price, line_dash="dash", line_color=RED, annotation_text=f"{comp_name} {money(comp_price, lang, 0)}")
+    fig.add_vline(x=comp_price, line_dash="dash", line_color=RED, annotation_text=f"{comp_name} {money(comp_price, lang, 2)}")
     fig.update_layout(height=320, margin=dict(l=10, r=10, t=80, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02),
                       plot_bgcolor="#fff", bargap=0.15, xaxis_title=t("price_axis", lang))
     fig.update_yaxes(title_text=t("revenue_eur", lang), secondary_y=False)
@@ -207,7 +218,7 @@ gap = analytics.category_competitor_gap(df)
 with r1:
     st.markdown(f"<div class='ptitle'>{t('category_gap', lang)}</div>", unsafe_allow_html=True)
     gap = gap.assign(label=gap["category"].map(lambda c: category_label(c, lang)))
-    fig = px.bar(gap, x="label", y="gap_pct", text=gap["gap_pct"].map(lambda v: f"{v:+.1f}%"),
+    fig = px.bar(gap, x="label", y="gap_pct", text=gap["gap_pct"].map(lambda v: pct(v, signed=True)),
                  color="gap_pct", color_continuous_scale="RdYlGn_r")
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), coloraxis_showscale=False, plot_bgcolor="#fff",
                       xaxis_title=None, yaxis_title=t("gap_axis", lang))
@@ -222,11 +233,13 @@ with r2:
 with r3:
     st.markdown(f"<div class='ptitle'>🔍 {t('voc', lang)}</div>", unsafe_allow_html=True)
     friction = ", ".join(complaint_label(c, lang) for c in evidence["top_complaints"]) or t("none_word", lang)
-    st.caption(f"{t('friction', lang)}: `{friction}`")
+    st.caption(loc(f"{t('friction', lang)} : `{friction}`") if lang == "fr" else f"{t('friction', lang)}: `{friction}`")
     for item in evidence["evidence_quotes"]:
         with st.container(border=True):
             st.markdown(f"*\"{item['review_text']}\"*")
-            st.caption(f"{t('tag', lang)}: **{complaint_label(item['complaint_category'], lang)}** · "
+            st.caption(loc(f"{t('tag', lang)} : **{complaint_label(item['complaint_category'], lang)}** · "
+                           f"{t('sentiment', lang)} `{number(item['sentiment_score'], lang, 2)}`") if lang == "fr" else
+                       f"{t('tag', lang)}: **{complaint_label(item['complaint_category'], lang)}** · "
                        f"{t('sentiment', lang)} `{item['sentiment_score']:.2f}`")
 
 st.markdown(f"<div class='ptitle'>{t('summary_table', lang)}</div>", unsafe_allow_html=True)

@@ -108,7 +108,7 @@ def simulator_implied_elasticity(contexts: Optional[Dict[str, dict]] = None) -> 
     out = {}
     for name, ctx in contexts.items():
         curve = m.simulate_price_curve({**base, **ctx})
-        near = curve.iloc[5:10]                                  # around the base price (-8% .. +1%)
+        near = curve.iloc[5:10]                                  # around the base price (about -7.5% .. -2.5%)
         lp, lc = np.log(near["offered_price"].to_numpy()), np.log(near["conversion_prob"].to_numpy())
         out[name] = round(float(np.polyfit(lp, lc, 1)[0]), 3)
     return out

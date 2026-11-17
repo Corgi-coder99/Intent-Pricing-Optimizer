@@ -31,7 +31,9 @@ def load_market(root: Optional[Path] = None) -> Optional[Dict[str, object]]:
         f = pd.read_parquet(fx)
         g = f[f["currency"] == "GBP"].sort_values("rate_date").tail(1)
         if len(g):
-            gbp = {"eur_per_unit": float(g["eur_per_unit"].iloc[0]), "rate_date": str(g["rate_date"].iloc[0])[:10]}
+            rate_date = str(g["rate_date"].iloc[0])[:10]
+            age = (pd.Timestamp.now().normalize() - pd.Timestamp(rate_date)).days
+            gbp = {"eur_per_unit": float(g["eur_per_unit"].iloc[0]), "rate_date": rate_date, "age_days": int(age)}
     return {"market": market, "names": names, "coords": coords, "gbp": gbp}
 
 
@@ -40,7 +42,10 @@ def country_summary(market: pd.DataFrame, only_confident: bool = False, countrie
     sector margin (Eurostat)."""
     d = market[(market["status"] == "ok") & (market["country"] != market["home_country"])].dropna(subset=["vs_home_pct"])
     if only_confident:
-        d = d[d["confidence"] == "ok"]
+        # both the compared row AND the home-country row must be reliable
+        home_ok = set(market[(market["country"] == market["home_country"]) & (market["status"] == "ok")
+                             & (market["confidence"] == "ok")]["product_code"])
+        d = d[(d["confidence"] == "ok") & d["product_code"].isin(home_ok)]
     if countries:
         d = d[d["country"].isin(countries)]
     if d.empty:
@@ -52,9 +57,12 @@ def country_summary(market: pd.DataFrame, only_confident: bool = False, countrie
     return g.round(2)
 
 
-def comparable_products(market: pd.DataFrame, only_confident: bool = False) -> List[str]:
-    """Product codes with valid prices in two or more countries."""
+def comparable_products(market: pd.DataFrame, only_confident: bool = False,
+                        countries: Optional[List[str]] = None) -> List[str]:
+    """Product codes with valid prices in two or more countries (the selected countries plus the home country)."""
     d = market[market["status"] == "ok"].dropna(subset=["market_net_eur"])
+    if countries is not None:
+        d = d[d["country"].isin(set(countries) | set(d["home_country"].unique()))]
     if only_confident:
         d = d[d["confidence"] == "ok"]
     n = d.groupby("product_code")["country"].nunique()

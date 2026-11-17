@@ -120,7 +120,7 @@ def test_failed_node_skips_dependents_without_retry(layout):
     g = {"a": Node("a", boom), "b": Node("b", lambda c: {}, ("a",)), "c": Node("c", lambda c: {})}
     r = run_pipeline(layout, graph=g)
     assert r["status"] == {"a": "failed", "b": "skipped_dependency", "c": "ok"} and calls["n"] == 1 and not r["ok"]
-    assert not (layout.state / "pipeline.lock").exists()           # the lock is always released
+    assert RunLock.is_free(layout.state / "pipeline.lock")           # the lock is always released
 
 
 def test_lock_blocks_second_runner_and_releases(layout):

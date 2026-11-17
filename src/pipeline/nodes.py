@@ -134,7 +134,7 @@ def _norm_part(value: str, kind: str) -> str:
     v = str(value).strip()
     try:
         if kind in ("float", "int"):
-            return format(float(v), "g")
+            return format(float(v), ".10g")
         if kind == "datetime":
             return pd.to_datetime(v, utc=True).strftime("%Y-%m-%d")
     except (ValueError, TypeError):
@@ -149,7 +149,7 @@ def key_strings(df: pd.DataFrame, contract: Contract) -> pd.Series:
         kind = contract.dtypes.get(c, "str")
         s = df[c]
         if kind in ("float", "int"):
-            part = s.map(lambda v: format(float(v), "g"))
+            part = s.map(lambda v: format(float(v), ".10g"))
         elif kind == "datetime":
             part = pd.to_datetime(s, utc=True, errors="coerce").dt.strftime("%Y-%m-%d")
         else:
@@ -209,15 +209,31 @@ def _apply_tombstones(current: Optional[pd.DataFrame], rows: pd.DataFrame, contr
     return current[~mask].reset_index(drop=True), found, max(0, len(wanted) - found)
 
 
+def _state_path(L: Layout, rtype: str) -> Path:
+    return L.state / f"silver_{rtype}_state.json"
+
+
+def _load_state(L: Layout, rtype: str) -> Tuple[List[str], List[str]]:
+    """Processed data batches and tombstone files for a record type. One file, so both lists are always consistent."""
+    p = _state_path(L, rtype)
+    if p.exists():
+        d = read_json(p, {})
+        return list(d.get("data", [])), list(d.get("tombstones", []))
+    # legacy layout (two separate files) from earlier versions
+    return (read_json(L.state / f"silver_{rtype}_processed.json", []),
+            read_json(L.state / f"silver_{rtype}_tombstones_processed.json", []))
+
+
+def _save_state(L: Layout, rtype: str, data: List[str], tombstones: List[str]) -> None:
+    atomic_write_json(_state_path(L, rtype), {"data": data, "tombstones": tombstones})
+
+
 def silver_build(ctx: Context, rtype: str) -> Dict:
     """Process in ingestion order: data batches (coerce types, validate, deduplicate, upsert, keep history) and
     tombstones (delete, keeping history). Idempotent: the processed list is written only after the silver table is written."""
     L, contract, pol = ctx.layout, CONTRACTS[rtype], ctx.policy
     manifest = read_json(L.state / "bronze_manifest.json", {})
-    data_state = L.state / f"silver_{rtype}_processed.json"
-    ts_state = L.state / f"silver_{rtype}_tombstones_processed.json"
-    done_data: List[str] = read_json(data_state, [])
-    done_ts: List[str] = read_json(ts_state, [])
+    done_data, done_ts = _load_state(L, rtype)
     out_path = L.silver / f"{rtype}.parquet"
 
     events = []
@@ -286,8 +302,7 @@ def silver_build(ctx: Context, rtype: str) -> Dict:
 
     if current is not None:
         atomic_write_parquet(current.sort_values(contract.key).reset_index(drop=True), out_path)
-    atomic_write_json(data_state, done_data)           # written last: a crash midway means the next run reprocesses, and the result is still correct
-    atomic_write_json(ts_state, done_ts)
+    _save_state(L, rtype, done_data, done_ts)           # written last: a crash midway means the next run reprocesses, and the result is still correct
     return {**t, "rows_total": 0 if current is None else len(current)}
 
 
@@ -299,8 +314,9 @@ def housekeeping(ctx: Context) -> Dict:
     L, pol = ctx.layout, ctx.policy
     manifest_path = L.state / "bronze_manifest.json"
     manifest: Dict[str, dict] = read_json(manifest_path, {})
-    data_done = {t: set(read_json(L.state / f"silver_{t}_processed.json", [])) for t in DATA_TYPES}
-    ts_done = {t: set(read_json(L.state / f"silver_{t}_tombstones_processed.json", [])) for t in DATA_TYPES}
+    states = {t: _load_state(L, t) for t in DATA_TYPES}
+    data_done = {t: set(states[t][0]) for t in DATA_TYPES}
+    ts_done = {t: set(states[t][1]) for t in DATA_TYPES}
 
     def processed(h: str, m: dict) -> bool:
         rt = m["record_type"]

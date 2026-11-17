@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import market_view
+from src.agent_decision import money, number
 from src.i18n import streamlit_lang, t
 
 st.set_page_config(page_title="EU/UK country comparison", page_icon="🌍", layout="wide")
@@ -58,12 +59,13 @@ all_countries = sorted(c for c in market["country"].unique() if c != home)
 picked = f2.multiselect(t("cc_countries", lang, home=home), all_countries, default=all_countries)
 
 summary = market_view.country_summary(market, only_ok, picked)
-codes = market_view.comparable_products(market, only_ok)
-ok_share = (market["confidence"] == "ok").mean() * 100 if len(market) else 0
+codes = market_view.comparable_products(market, only_ok, picked)
+scope = market[market["country"].isin(set(picked) | {home})]                     # KPIs follow the country selection
+ok_share = (scope["confidence"] == "ok").mean() * 100 if len(scope) else 0
 
 k = st.columns(4)
 k[0].markdown(kpi(t("cc_kpi_products", lang), f"{len(codes):,}", NAVY), unsafe_allow_html=True)
-k[1].markdown(kpi(t("cc_kpi_countries", lang), f"{market['country'].nunique()}", BLUE), unsafe_allow_html=True)
+k[1].markdown(kpi(t("cc_kpi_countries", lang), f"{scope['country'].nunique()}", BLUE), unsafe_allow_html=True)
 k[2].markdown(kpi(t("cc_kpi_reliable", lang), f"{ok_share:.0f}" + (" %" if lang == "fr" else "%"),
                   ORANGE if ok_share < 50 else GREEN), unsafe_allow_html=True)
 if gbp:
@@ -71,6 +73,8 @@ if gbp:
     k[3].markdown(kpi(t("cc_kpi_fx", lang, date=gbp["rate_date"]), rate, GREEN), unsafe_allow_html=True)
 else:
     k[3].markdown(kpi(t("cc_kpi_fx_none", lang), t("cc_none", lang), RED), unsafe_allow_html=True)
+if gbp and gbp.get("age_days", 0) > 7:
+    st.warning(t("cc_fx_stale", lang, days=gbp["age_days"]))
 st.write("")
 
 if summary.empty:
@@ -113,16 +117,22 @@ else:
     label = lambda c: f"{names.get(c, t('cc_generic_product', lang))} ({c})"
     code = st.selectbox(t("cc_product", lang), codes, format_func=label)
     tbl = market_view.product_table(market, code)
-    fig = px.bar(tbl, x="country", y="market_net_eur", color="confidence", text=tbl["market_net_eur"].map(lambda v: f"€{v:.2f}"),
-                 color_discrete_map={"ok": GREEN, "low": ORANGE})
+    tbl["reliability"] = tbl["confidence"].map({"ok": t("cc_conf_ok", lang), "low": t("cc_conf_low", lang)})
+    fig = px.bar(tbl, x="country", y="market_net_eur", color="reliability", labels={"reliability": t("cc_col_conf", lang)}, text=tbl["market_net_eur"].map(lambda v: money(v, lang)),
+                 color_discrete_map={t("cc_conf_ok", lang): GREEN, t("cc_conf_low", lang): ORANGE})
     fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="#fff", xaxis_title=None,
                       yaxis_title=t("cc_net_price", lang))
     show(fig)
-    st.dataframe(tbl.rename(columns={"country": t("cc_col_country", lang), "market_net_eur": t("cc_net_price", lang),
-                                     "vs_home_pct": f"% vs {home}", "scenario_margin_pct": t("cc_col_scenario", lang),
-                                     "sector_gross_margin_pct": t("cc_col_sector", lang), "n_obs": t("cc_col_obs", lang),
-                                     "n_stores": t("cc_col_stores", lang), "confidence": t("cc_col_conf", lang)}),
-                 width="stretch", hide_index=True)
+    num = lambda v, d=2: "—" if v != v or v is None else number(float(v), lang, d)      # localized, NaN -> dash
+    shown = tbl.assign(market_net_eur=tbl["market_net_eur"].map(lambda v: money(v, lang)),
+                       vs_home_pct=tbl["vs_home_pct"].map(lambda v: num(v, 1)),
+                       scenario_margin_pct=tbl["scenario_margin_pct"].map(lambda v: num(v, 1)),
+                       sector_gross_margin_pct=tbl["sector_gross_margin_pct"].map(lambda v: num(v, 1)))
+    st.dataframe(shown.drop(columns=["confidence"]).rename(columns={
+        "country": t("cc_col_country", lang), "market_net_eur": t("cc_net_price", lang), "vs_home_pct": f"% vs {home}",
+        "scenario_margin_pct": t("cc_col_scenario", lang), "sector_gross_margin_pct": t("cc_col_sector", lang),
+        "n_obs": t("cc_col_obs", lang), "n_stores": t("cc_col_stores", lang), "reliability": t("cc_col_conf", lang)}),
+        width="stretch", hide_index=True)
 
 with st.expander(t("cc_howto", lang), expanded=True):
     st.markdown("\n".join(f"- {t(k, lang)}" for k in ("cc_note_1", "cc_note_2", "cc_note_3", "cc_note_4", "cc_note_5")))

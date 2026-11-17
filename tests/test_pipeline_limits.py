@@ -6,7 +6,7 @@ import pytest
 
 from src.data_generator import generate_ecommerce_dataset
 from src.pipeline import InsufficientResources, Layout, Policy, run_pipeline
-from src.pipeline.infra import read_json
+from src.pipeline.infra import RunLock, read_json
 
 
 @pytest.fixture()
@@ -125,7 +125,7 @@ def test_quarantine_is_capped(layout, sessions):
 def test_disk_guard_refuses_to_run(layout):
     with pytest.raises(InsufficientResources):
         run(layout, min_free_bytes=10 ** 18)
-    assert not (layout.state / "pipeline.lock").exists()
+    assert RunLock.is_free(layout.state / "pipeline.lock")
 
 
 def test_file_being_written_is_deferred_not_registered(layout, sessions):

@@ -86,56 +86,73 @@ class PipelineBusy(RuntimeError):
 
 
 class RunLock:
-    """Pipeline-wide lock: only one run at a time (file created with O_EXCL, an atomic operation).
+    """Pipeline-wide lock: only one run at a time, using an OS-level exclusive file lock (msvcrt on Windows, fcntl elsewhere).
 
-    The lock owner calls heartbeat() periodically; a lock not renewed for more than `ttl` seconds is treated as belonging to a
-    dead process and is reclaimed. No PID check, because on Windows os.kill(pid, 0) can terminate the process.
+    The operating system releases the lock automatically when the owning process dies, so there is no stale-lock reclaim
+    race and no TTL. Works on local filesystems only (see docs/SECURITY.md). `ttl` is accepted for backward compatibility and unused.
     """
 
     def __init__(self, path: Path, ttl: int = 600, wait: float = 0.0):
-        self.path, self.ttl, self.wait = path, ttl, wait
-        self.token = uuid.uuid4().hex
+        self.path, self.wait = Path(path), wait
+        self._fd: Optional[int] = None
 
-    def _try_create(self) -> bool:
+    def _try_lock(self) -> bool:
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+            if os.name == "nt":
+                import msvcrt
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
             return False
-        with os.fdopen(fd, "w") as f:
-            json.dump({"pid": os.getpid(), "token": self.token, "ts": time.time()}, f)
+        self._fd = fd
+        try:                                                  # diagnostics only
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.write(fd, json.dumps({"pid": os.getpid(), "ts": time.time()}).encode())
+        except OSError:
+            pass
         return True
 
     def acquire(self) -> None:
         deadline = time.monotonic() + self.wait
-        while True:
-            if self._try_create():
-                return
-            try:
-                age = time.time() - self.path.stat().st_mtime
-                if age > self.ttl:
-                    self.path.unlink(missing_ok=True)   # dead lock -> reclaim, retry
-                    continue
-            except FileNotFoundError:
-                continue
+        while not self._try_lock():
             if time.monotonic() >= deadline:
                 raise PipelineBusy(f"Pipeline is already running (lock: {self.path})")
             time.sleep(0.2)
 
     def heartbeat(self) -> None:
-        """Renew the lock: while the owner is alive the mtime stays fresh, so the TTL only reclaims locks of dead processes."""
-        try:
-            os.utime(self.path)
-        except FileNotFoundError:
-            pass
+        """No-op: an OS lock needs no renewal (kept so callers do not change)."""
 
     def release(self) -> None:
-        info: Optional[dict] = None
-        try:
-            info = json.loads(self.path.read_text())
-        except (FileNotFoundError, ValueError):
+        if self._fd is None:                                  # we never held it: never touch someone else's lock
             return
-        if info.get("token") == self.token:   # only remove our own lock
-            self.path.unlink(missing_ok=True)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                os.lseek(self._fd, 0, os.SEEK_SET)
+                msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self._fd)
+            self._fd = None
+
+    @staticmethod
+    def is_free(path: Path) -> bool:
+        """True if nobody currently holds the lock (used by tests and diagnostics)."""
+        probe = RunLock(path)
+        try:
+            probe.acquire()
+        except PipelineBusy:
+            return False
+        probe.release()
+        return True
 
     def __enter__(self): self.acquire(); return self
     def __exit__(self, *exc): self.release()

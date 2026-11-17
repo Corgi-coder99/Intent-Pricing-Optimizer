@@ -27,7 +27,7 @@ graph LR
 pip install -r requirements.txt
 python -m src.train_pipeline                 # simulate data -> bronze/silver/gold -> train the model
 python -m pytest -q tests                    # 160+ tests
-python -m streamlit run app/streamlit_app.py # dashboard (English/French switch in the sidebar)
+python -m streamlit run app/Dashboard.py # dashboard (English/French switch in the sidebar)
 python -m uvicorn src.api:app --host 127.0.0.1 --port 8000   # REST API, docs at /docs
 ```
 The dashboard listens on `127.0.0.1` only (`.streamlit/config.toml`); open `http://127.0.0.1:8501`.

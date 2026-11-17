@@ -102,7 +102,8 @@ def test_key_guessing_is_throttled(client, monkeypatch):
     body = {"text": "great"}
     for _ in range(10):
         assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "bad"}).status_code == 401
-    assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "secret"}).status_code == 429
+    assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "bad"}).status_code == 429      # more wrong keys: throttled
+    assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "secret"}).status_code == 200   # a valid key is never locked out
 
 
 def test_oversized_body_rejected(client):

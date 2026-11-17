@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Dict, List
 import pandas as pd
 from src.config import OPENAI_API_KEY, PROCESSED_DATASET_PATH, RAW_DATASET_PATH
@@ -15,7 +16,7 @@ class ReviewSignalExtractor:
     }
 
     POSITIVE_KEYWORDS: List[str] = [
-        "exceeds", "seamlessly", "worth", "fast", "great", "reliable", "sleek", "essential"
+        "exceeds", "seamlessly", "worth", "great", "reliable", "sleek", "essential"
     ]
 
     def __init__(self, use_llm: bool = False):
@@ -29,6 +30,12 @@ class ReviewSignalExtractor:
             return self._analyze_with_llm(text)
         return self._analyze_offline(text)
 
+    @staticmethod
+    def _has_word(keyword: str, text_lower: str) -> bool:
+        """Whole-word match (so "late" does not match "chocolate" and "great" not "greatly"); no negation handling.
+        "fast" is not a positive keyword: it is ambiguous ("fast shipping" vs "battery drains fast")."""
+        return re.search(r"\b" + re.escape(keyword) + r"\b", text_lower) is not None
+
     def _analyze_offline(self, text: str) -> Dict[str, object]:
         text_lower = text.lower()
         detected_category = "none"
@@ -36,13 +43,13 @@ class ReviewSignalExtractor:
         best_hits = 0
 
         for category, keywords in self.ISSUE_KEYWORDS.items():
-            hits = sum(1 for kw in keywords if kw in text_lower)
+            hits = sum(1 for kw in keywords if self._has_word(kw, text_lower))
             if hits > 0:
                 neg_hits += hits
                 if hits >= best_hits:          # most keyword hits wins; on a tie the category declared later wins
                     detected_category, best_hits = category, hits
 
-        pos_hits = sum(1 for kw in self.POSITIVE_KEYWORDS if kw in text_lower)
+        pos_hits = sum(1 for kw in self.POSITIVE_KEYWORDS if self._has_word(kw, text_lower))
 
         raw_score = 0.50 + (0.18 * pos_hits) - (0.22 * neg_hits)
         sentiment_score = round(max(0.05, min(0.95, raw_score)), 3)

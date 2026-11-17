@@ -5,6 +5,7 @@ import pytest
 
 from src.data_generator import generate_ecommerce_dataset
 from src.pipeline import Layout, run_pipeline
+from src.pipeline.infra import RunLock
 from src.pipeline.orchestrator import Node
 from tests import slow_nodes
 
@@ -28,7 +29,7 @@ def test_timeout_kills_slow_node_and_skips_dependents(layout):
     assert time.time() - t < 30                        # does not wait the full 60s of the hung step
     assert r["status"] == {"slow": "failed", "after": "skipped_dependency", "other": "ok"}
     assert r["results"]["slow"]["timed_out"] is True and "durations" in r
-    assert not (layout.state / "pipeline.lock").exists()
+    assert RunLock.is_free(layout.state / "pipeline.lock")
 
 
 def test_crashed_process_reported_not_hung(layout):

@@ -15,7 +15,7 @@ une API REST, un pipeline de données bronze/silver/gold et des données de marc
 pip install -r requirements.txt
 python -m src.train_pipeline                 # simule les données -> bronze/silver/gold -> entraîne le modèle
 python -m pytest -q tests                    # plus de 160 tests
-python -m streamlit run app/streamlit_app.py # tableau de bord (sélecteur English/Français dans la barre latérale)
+python -m streamlit run app/Dashboard.py # tableau de bord (sélecteur English/Français dans la barre latérale)
 python -m uvicorn src.api:app --host 127.0.0.1 --port 8000   # API REST, documentation sur /docs
 ```
 Le tableau de bord n'écoute que sur `127.0.0.1` (`.streamlit/config.toml`) ; ouvrez `http://127.0.0.1:8501`.
