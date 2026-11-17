@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intent Pricing Optimizer — demo</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+:root{--navy:#1f3a5f;--blue:#2f7fc1;--orange:#f39c12;--red:#d64545;--green:#2e9e6b;--bg:#f4f6f9;--ink:#1b2a3d;--line:#e3e8ef}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Source Sans Pro","Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+.wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+h1{font-size:1.5rem;color:var(--navy);margin:0}
+.sub{color:#5b6b80;font-size:.92rem;margin:4px 0 0}
+.ctl{display:flex;gap:10px;align-items:center}
+select,button.lg{font:inherit;padding:7px 10px;border:1px solid #c9d1dc;border-radius:8px;background:#fff;color:var(--ink)}
+button.lg{cursor:pointer;font-weight:600}
+label{font-size:.85rem;color:#5b6b80;display:block;margin-bottom:3px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}
+.kpi{border-radius:8px;padding:14px 10px;color:#fff;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.kpi .v{font-size:clamp(1.1rem,2vw,1.9rem);font-weight:700;line-height:1.1;white-space:nowrap}
+.kpi .l{font-size:.82rem;opacity:.93;margin-top:3px}
+.agent{border-left:5px solid var(--blue);background:#eef5fc;padding:12px 16px;border-radius:6px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+.grid.b{grid-template-columns:1fr 1.2fr}
+.grid.c{grid-template-columns:1.1fr 0.9fr}
+.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:14px;min-width:0}
+.pt{font-weight:600;color:var(--navy);font-size:.95rem;margin:4px 0 0 4px}
+.note{font-size:.85rem;color:#5b6b80;margin-top:6px}
+.note a{color:var(--blue);font-weight:600}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid,.grid.b,.grid.c{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1 id="title"></h1><p class="sub" id="subtitle"></p></div>
+    <div class="ctl">
+      <div><label id="lbl-product" for="prod"></label><select id="prod"></select></div>
+      <button class="lg" id="lang" aria-label="Language"></button>
+    </div>
+  </header>
+  <div class="kpis" id="kpis"></div>
+  <div class="agent" id="agent"></div>
+  <div class="grid">
+    <div class="panel"><div class="pt" id="t-curve"></div><div id="c-curve"></div></div>
+    <div class="panel"><div class="pt" id="t-comp"></div><div id="c-comp"></div></div>
+  </div>
+  <div class="grid b">
+    <div class="panel"><div class="pt" id="t-map"></div><div id="c-map"></div></div>
+    <div class="panel"><div class="pt" id="t-region"></div><div id="c-region"></div></div>
+  </div>
+  <div class="grid c">
+    <div class="panel"><div class="pt" id="t-gap"></div><div id="c-gap"></div></div>
+    <div class="panel"><div class="pt" id="t-cb"></div><div id="c-cb"></div></div>
+  </div>
+  <p class="note" id="note"></p>
+  <p class="note"><a id="repo" href="https://github.com/Corgi-coder99/Intent-Pricing-Optimizer" target="_blank" rel="noopener"></a></p>
+</div>
+<script>
+const D = {"strings": {"title": {"en": "Intent-Driven Pricing & Conversion — BI Console", "fr": "Prix et conversion pilotés par l'intention — Console BI"}, "subtitle": {"en": "AI (NLP review mining) → Data Science (LightGBM price elasticity) → E-commerce (pricing agent). Simulated data.", "fr": "IA (analyse NLP des avis) → Data Science (élasticité-prix LightGBM) → E-commerce (agent de prix). Données simulées."}, "product": {"en": "Product", "fr": "Produit"}, "kpi_sessions": {"en": "Sessions", "fr": "Sessions"}, "kpi_conversion": {"en": "Conversion rate", "fr": "Taux de conversion"}, "kpi_revenue": {"en": "Simulated revenue", "fr": "Chiffre d'affaires simulé"}, "kpi_price": {"en": "Recommended price", "fr": "Prix recommandé"}, "kpi_gain": {"en": "Gain / 100 visits", "fr": "Gain / 100 visites"}, "agent": {"en": "Pricing Agent", "fr": "Agent de prix"}, "curve_title": {"en": "Price elasticity & expected revenue curve", "fr": "Courbe d'élasticité-prix et de chiffre d'affaires attendu"}, "rev_100": {"en": "Revenue / 100 visits (€)", "fr": "CA / 100 visites (€)"}, "conv_pct": {"en": "Conversion (%)", "fr": "Conversion (%)"}, "revenue_eur": {"en": "Revenue (€)", "fr": "Chiffre d'affaires (€)"}, "price_axis": {"en": "Price (€)", "fr": "Prix (€)"}, "vs_competitors": {"en": "Price vs competitors", "fr": "Prix face aux concurrents"}, "our_price": {"en": "Recommended (ours)", "fr": "Notre prix recommandé"}, "map_title": {"en": "Revenue & conversion by region (map)", "fr": "Chiffre d'affaires et conversion par région (carte)"}, "region_chart": {"en": "Conversion & sentiment by region", "fr": "Conversion et sentiment par région"}, "sentiment_x100": {"en": "Sentiment ×100", "fr": "Sentiment ×100"}, "col_conversion": {"en": "Conversion", "fr": "Conversion"}, "col_sentiment": {"en": "Avg sentiment", "fr": "Sentiment moyen"}, "col_revenue": {"en": "Revenue (€)", "fr": "Chiffre d'affaires (€)"}, "category_gap": {"en": "Category comparison: our price vs main competitor (%)", "fr": "Comparaison par catégorie : notre prix vs concurrent principal (%)"}, "gap_axis": {"en": "Price gap (%)", "fr": "Écart de prix (%)"}, "complaints": {"en": "Customer complaint mix", "fr": "Répartition des réclamations clients"}, "col_sessions": {"en": "Sessions", "fr": "Sessions"}, "language": {"en": "Language", "fr": "Langue"}, "note": {"en": "Static snapshot of the live app, simulated data, default settings. Sliders, region filter and the REST API need the real app: see the repository.", "fr": "Instantané statique de l'application, données simulées, réglages par défaut. Curseurs, filtre de région et API REST : voir l'application réelle dans le dépôt."}, "repo": {"en": "Source code and documentation on GitHub", "fr": "Code source et documentation sur GitHub"}, "discount": {"en": "discount", "fr": "remise"}, "markup": {"en": "markup", "fr": "hausse"}}, "products": [{"name": "ProSound ANC Wireless Headphones", "category": "Electronics", "comp_name": "SonicWave", "comp_price": 145.0, "curve": {"price": [119.99, 123.74, 127.49, 131.24, 134.99, 138.74, 142.49, 146.24, 149.99, 153.74, 157.49, 161.24, 164.99, 168.74, 172.49], "rev": [7048.21, 6658.45, 6629.48, 6564.62, 6621.26, 6544.37, 6584.46, 6542.78, 6605.56, 6613.89, 6628.75, 6615.68, 6464.31, 4286.0, 4243.25], "conv": [58.74, 53.81, 52.0, 50.02, 49.05, 47.17, 46.21, 44.74, 44.04, 43.02, 42.09, 41.03, 39.18, 25.4, 24.6]}, "opt_price": 119.99, "discount_pct": 20.0, "gain": 442.64999999999964, "sessions": 9998, "conversion_rate": 0.41028205641128224, "revenue": 583226.4099999999, "competitors": [{"seller": "Recommended (ours)", "ours": true, "price": 119.99}, {"seller": "SonicWave", "ours": false, "price": 145.0}, {"seller": "AudioMax", "ours": false, "price": 159.0}, {"seller": "BeatLab", "ours": false, "price": 139.0}], "summary": {"en": "Customer sentiment for ProSound ANC Wireless Headphones is pressured (0.43/1.0) due to [price / value, shipping and packaging]. Recommend a targeted 20.0% discount to €119.99 (from €149.99), lifting predicted conversion to 58.7% and maximizing expected revenue at €7,048.21 per 100 visits.", "fr": "Le sentiment client pour ProSound ANC Wireless Headphones est dégradé (0,43/1,0) en raison de : rapport qualité-prix, livraison et emballage. Nous recommandons une remise ciblée de 20,0 %, soit 119,99 € au lieu de 149,99 €. La conversion prévue passe à 58,7 %, pour un chiffre d'affaires attendu maximal de 7 048,21 € pour 100 visites."}, "strategy": {"en": "Defensive Conversion Recovery", "fr": "Redressement défensif de la conversion"}}, {"name": "ErgoFlow Mechanical Keyboard", "category": "Accessories", "comp_name": "KeyCraft", "comp_price": 125.0, "curve": {"price": [95.2, 98.18, 101.15, 104.12, 107.1, 110.08, 113.05, 116.02, 119.0, 121.98, 124.95, 127.92, 130.9, 133.88, 136.85], "rev": [5874.79, 5619.82, 5533.92, 5273.68, 5269.32, 5259.62, 5335.96, 5292.83, 5351.43, 5352.48, 5460.32, 5545.33, 5564.56, 5305.66, 5145.56], "conv": [61.71, 57.24, 54.71, 50.65, 49.2, 47.78, 47.2, 45.62, 44.97, 43.88, 43.7, 43.35, 42.51, 39.63, 37.6]}, "opt_price": 95.2, "discount_pct": 20.0, "gain": 523.3599999999997, "sessions": 10062, "conversion_rate": 0.44851918107732064, "revenue": 515208.79000000004, "competitors": [{"seller": "Recommended (ours)", "ours": true, "price": 95.2}, {"seller": "KeyCraft", "ours": false, "price": 125.0}, {"seller": "TypePro", "ours": false, "price": 135.0}, {"seller": "ClickZone", "ours": false, "price": 115.0}], "summary": {"en": "Optimal revenue point sits near base price (€95.20). Instead of broad margin cuts, deploy an exit-intent assistant addressing 'shipping and packaging, price / value'.", "fr": "Le chiffre d'affaires est optimal près du prix de base (95,20 €). Plutôt que de larges baisses de marge, nous recommandons un assistant déclenché à l'intention de sortie, qui traite : « livraison et emballage, rapport qualité-prix »."}, "strategy": {"en": "Equilibrium Hold & Targeted Intervention", "fr": "Maintien de l'équilibre et action ciblée"}}, {"name": "AeroBrew Smart Pour-Over Coffee Maker", "category": "Home & Kitchen", "comp_name": "BrewMate", "comp_price": 84.99, "curve": {"price": [71.6, 73.84, 76.08, 78.31, 80.55, 82.79, 85.02, 87.26, 89.5, 91.74, 93.98, 96.21, 98.45, 100.69, 102.92], "rev": [4217.96, 3876.6, 3924.97, 3825.44, 3766.52, 3751.21, 3814.0, 3794.94, 3818.07, 3720.97, 3722.55, 3629.04, 3233.1, 2586.73, 2254.98], "conv": [58.91, 52.5, 51.59, 48.85, 46.76, 45.31, 44.86, 43.49, 42.66, 40.56, 39.61, 37.72, 32.84, 25.69, 21.91]}, "opt_price": 71.6, "discount_pct": 20.0, "gain": 399.8899999999999, "sessions": 9926, "conversion_rate": 0.3841426556518235, "revenue": 322212.41000000003, "competitors": [{"seller": "Recommended (ours)", "ours": true, "price": 71.6}, {"seller": "BrewMate", "ours": false, "price": 84.99}, {"seller": "CafeNova", "ours": false, "price": 92.0}, {"seller": "DripKing", "ours": false, "price": 79.0}], "summary": {"en": "Customer sentiment for AeroBrew Smart Pour-Over Coffee Maker is pressured (0.41/1.0) due to [price / value, shipping and packaging]. Recommend a targeted 20.0% discount to €71.60 (from €89.50), lifting predicted conversion to 58.9% and maximizing expected revenue at €4,217.96 per 100 visits.", "fr": "Le sentiment client pour AeroBrew Smart Pour-Over Coffee Maker est dégradé (0,41/1,0) en raison de : rapport qualité-prix, livraison et emballage. Nous recommandons une remise ciblée de 20,0 %, soit 71,60 € au lieu de 89,50 €. La conversion prévue passe à 58,9 %, pour un chiffre d'affaires attendu maximal de 4 217,96 € pour 100 visites."}, "strategy": {"en": "Defensive Conversion Recovery", "fr": "Redressement défensif de la conversion"}}, {"name": "TrailBlaze Waterproof Commuter Backpack", "category": "Fashion & Gear", "comp_name": "UrbanPack", "comp_price": 79.0, "curve": {"price": [60.0, 61.88, 63.75, 65.62, 67.5, 69.38, 71.25, 73.12, 75.0, 76.88, 78.75, 80.62, 82.5, 84.38, 86.25], "rev": [3507.6, 3362.56, 3384.49, 3265.25, 3206.92, 3158.87, 3196.28, 3152.93, 3203.25, 3261.25, 3340.58, 3400.55, 3413.03, 3359.17, 3337.01], "conv": [58.46, 54.34, 53.09, 49.76, 47.51, 45.53, 44.86, 43.12, 42.71, 42.42, 42.42, 42.18, 41.37, 39.81, 38.69]}, "opt_price": 60.0, "discount_pct": 20.0, "gain": 304.3499999999999, "sessions": 9973, "conversion_rate": 0.43828336508573146, "revenue": 314683.67, "competitors": [{"seller": "Recommended (ours)", "ours": true, "price": 60.0}, {"seller": "UrbanPack", "ours": false, "price": 79.0}, {"seller": "RoamGear", "ours": false, "price": 85.0}, {"seller": "DryBag Co", "ours": false, "price": 72.0}], "summary": {"en": "Optimal revenue point sits near base price (€60.00). Instead of broad margin cuts, deploy an exit-intent assistant addressing 'shipping and packaging, price / value'.", "fr": "Le chiffre d'affaires est optimal près du prix de base (60,00 €). Plutôt que de larges baisses de marge, nous recommandons un assistant déclenché à l'intention de sortie, qui traite : « livraison et emballage, rapport qualité-prix »."}, "strategy": {"en": "Equilibrium Hold & Targeted Intervention", "fr": "Maintien de l'équilibre et action ciblée"}}, {"name": "Lumina 4K USB-C Webcam", "category": "Electronics", "comp_name": "ClearCam", "comp_price": 119.0, "curve": {"price": [103.2, 106.43, 109.65, 112.88, 116.1, 119.32, 122.55, 125.78, 129.0, 132.22, 135.45, 138.67, 141.9, 145.12, 148.35], "rev": [5893.75, 5714.23, 5755.53, 5616.91, 5618.08, 5633.1, 5735.34, 5639.98, 5584.41, 5538.7, 5468.12, 4300.16, 3953.33, 3360.98, 2987.77], "conv": [57.11, 53.69, 52.49, 49.76, 48.39, 47.21, 46.8, 44.84, 43.29, 41.89, 40.37, 31.01, 27.86, 23.16, 20.14]}, "opt_price": 103.2, "discount_pct": 20.0, "gain": 309.34000000000015, "sessions": 10041, "conversion_rate": 0.37705407827905585, "revenue": 459549.95999999996, "competitors": [{"seller": "Recommended (ours)", "ours": true, "price": 103.2}, {"seller": "ClearCam", "ours": false, "price": 119.0}, {"seller": "StreamEye", "ours": false, "price": 135.0}, {"seller": "OptiView", "ours": false, "price": 109.0}], "summary": {"en": "Customer sentiment for Lumina 4K USB-C Webcam is pressured (0.39/1.0) due to [price / value, shipping and packaging]. Recommend a targeted 20.0% discount to €103.20 (from €129.00), lifting predicted conversion to 57.1% and maximizing expected revenue at €5,893.75 per 100 visits.", "fr": "Le sentiment client pour Lumina 4K USB-C Webcam est dégradé (0,39/1,0) en raison de : rapport qualité-prix, livraison et emballage. Nous recommandons une remise ciblée de 20,0 %, soit 103,20 € au lieu de 129,00 €. La conversion prévue passe à 57,1 %, pour un chiffre d'affaires attendu maximal de 5 893,75 € pour 100 visites."}, "strategy": {"en": "Defensive Conversion Recovery", "fr": "Redressement défensif de la conversion"}}], "regions": [{"region": "Bordeaux", "lat": 44.84, "lon": -0.58, "revenue": 167916.72, "conversion_rate": 0.3979, "avg_sentiment": 0.4267}, {"region": "Lille", "lat": 50.63, "lon": 3.06, "revenue": 215282.64, "conversion_rate": 0.4025, "avg_sentiment": 0.427}, {"region": "Lyon", "lat": 45.76, "lon": 4.84, "revenue": 485905.35, "conversion_rate": 0.4112, "avg_sentiment": 0.4345}, {"region": "Marseille", "lat": 43.3, "lon": 5.37, "revenue": 273309.46, "conversion_rate": 0.4361, "avg_sentiment": 0.4342}, {"region": "Nantes", "lat": 47.22, "lon": -1.55, "revenue": 179934.84, "conversion_rate": 0.4217, "avg_sentiment": 0.4301}, {"region": "Paris", "lat": 48.86, "lon": 2.35, "revenue": 650806.82, "conversion_rate": 0.4064, "avg_sentiment": 0.4288}, {"region": "Toulouse", "lat": 43.6, "lon": 1.44, "revenue": 221725.41, "conversion_rate": 0.4117, "avg_sentiment": 0.4347}], "gap": [{"label": {"en": "Accessories", "fr": "Accessoires"}, "gap": -7.02}, {"label": {"en": "Electronics", "fr": "Électronique"}, "gap": 2.99}, {"label": {"en": "Fashion & Gear", "fr": "Mode et équipement"}, "gap": -7.26}, {"label": {"en": "Home & Kitchen", "fr": "Maison et cuisine"}, "gap": 2.77}], "complaints": [{"label": {"en": "none", "fr": "aucune"}, "sessions": 18750}, {"label": {"en": "shipping and packaging", "fr": "livraison et emballage"}, "sessions": 14316}, {"label": {"en": "price / value", "fr": "rapport qualité-prix"}, "sessions": 13950}, {"label": {"en": "quality defect", "fr": "défaut de qualité"}, "sessions": 2984}]};
+const NAVY="#1f3a5f",BLUE="#2f7fc1",ORANGE="#f39c12",RED="#d64545",GREEN="#2e9e6b";
+let lang = "en";
+try { const s = new URLSearchParams(location.search).get("lang") || localStorage.getItem("lang"); if (s === "fr" || s === "en") lang = s; } catch (e) {}
+let pi = 0;
+const S = k => D.strings[k][lang];
+const loc = () => lang === "fr" ? "fr-FR" : "en-GB";
+const num = (v, d = 0) => new Intl.NumberFormat(loc(), {minimumFractionDigits: d, maximumFractionDigits: d}).format(v);
+const money = (v, d = 2) => new Intl.NumberFormat(loc(), {style: "currency", currency: "EUR", minimumFractionDigits: d, maximumFractionDigits: d}).format(v);
+const pct = (v, d = 1) => num(v, d) + (lang === "fr" ? " %" : "%");
+const base = () => ({margin: {l: 50, r: 30, t: 50, b: 40}, plot_bgcolor: "#fff", paper_bgcolor: "#fff", separators: lang === "fr" ? ", " : ".,",
+                     font: {family: "Source Sans Pro, Segoe UI, Arial, sans-serif", size: 12}, legend: {orientation: "h", y: 1.18}});
+const cfg = {displayModeBar: false, responsive: true};
+
+function render() {
+  const p = D.products[pi];
+  document.documentElement.lang = lang;
+  document.title = S("title");
+  document.getElementById("title").textContent = "📈 " + S("title");
+  document.getElementById("subtitle").textContent = S("subtitle");
+  document.getElementById("lbl-product").textContent = S("product");
+  document.getElementById("lang").textContent = lang === "fr" ? "EN" : "FR";
+  document.getElementById("note").textContent = S("note");
+  document.getElementById("repo").textContent = S("repo") + " →";
+  ["curve:curve_title", "comp:vs_competitors", "map:map_title", "region:region_chart", "gap:category_gap", "cb:complaints"]
+    .forEach(x => { const [id, k] = x.split(":"); document.getElementById("t-" + id).textContent = S(k); });
+
+  const sel = document.getElementById("prod");
+  sel.innerHTML = D.products.map((q, i) => `<option value="${i}" ${i === pi ? "selected" : ""}>${q.name}</option>`).join("");
+
+  const disc = p.discount_pct;
+  const sub = (disc >= 0 ? D.strings.discount[lang] : D.strings.markup[lang]) + " " + pct(Math.abs(disc));
+  const kp = (v, l, c, s = "") => `<div class="kpi" style="background:${c}"><div class="v">${v}</div><div class="l">${l}</div>${s ? `<div class="l">${s}</div>` : ""}</div>`;
+  document.getElementById("kpis").innerHTML =
+    kp(num(p.sessions), S("kpi_sessions"), NAVY) + kp(pct(p.conversion_rate * 100), S("kpi_conversion"), BLUE) +
+    kp(money(p.revenue, 0), S("kpi_revenue"), GREEN) + kp(money(p.opt_price), S("kpi_price"), ORANGE, sub) +
+    kp((p.gain >= 0 ? "+" : "−") + money(Math.abs(p.gain), 0), S("kpi_gain"), p.gain < 0 ? RED : GREEN);
+  document.getElementById("agent").innerHTML = `<b>🤖 ${S("agent")} — ${p.strategy[lang]}${lang === "fr" ? " :" : ":"}</b> ${p.summary[lang]}`;
+
+  // 1. price curve
+  const c = p.curve;
+  Plotly.react("c-curve", [
+    {type: "bar", x: c.price, y: c.rev, name: S("rev_100"), marker: {color: c.price.map(v => v === p.opt_price ? ORANGE : "#b9d3ea")},
+     hovertemplate: S("price_axis") + ": %{x:,.2f}<br>" + S("rev_100") + ": %{y:,.2f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: c.price, y: c.conv, name: S("conv_pct"), yaxis: "y2", line: {color: NAVY, width: 3},
+     hovertemplate: S("price_axis") + ": %{x:,.2f}<br>" + S("conv_pct") + ": %{y:.1f}<extra></extra>"}],
+    {...base(), height: 330, margin: {l: 60, r: 60, t: 70, b: 45}, xaxis: {title: S("price_axis")},
+     yaxis: {title: S("revenue_eur"), tickformat: ",.0f"}, yaxis2: {title: S("conv_pct"), overlaying: "y", side: "right", showgrid: false}, bargap: .15,
+     shapes: [{type: "line", x0: p.comp_price, x1: p.comp_price, yref: "paper", y0: 0, y1: 1, line: {color: RED, dash: "dash"}}],
+     annotations: [{x: p.comp_price, yref: "paper", y: 1.02, text: p.comp_name + " " + money(p.comp_price), showarrow: false, font: {color: RED}}]}, cfg);
+
+  // 2. competitors
+  const cp = p.competitors.slice().reverse();
+  Plotly.react("c-comp", [{type: "bar", orientation: "h", x: cp.map(r => r.price), y: cp.map(r => r.ours ? S("our_price") : r.seller),
+    text: cp.map(r => money(r.price)), textposition: "inside", marker: {color: cp.map(r => r.ours ? ORANGE : BLUE)},
+    hovertemplate: "%{y}<br>" + S("price_axis") + ": %{x:,.2f}<extra></extra>"}],
+    {...base(), height: 330, margin: {l: 130, r: 20, t: 20, b: 45}, xaxis: {title: S("price_axis")}, showlegend: false}, cfg);
+
+  // 3. map
+  const R = D.regions;
+  Plotly.react("c-map", [{type: "scattergeo", lat: R.map(r => r.lat), lon: R.map(r => r.lon),
+    marker: {size: R.map(r => r.revenue), sizemode: "area", sizeref: 2 * Math.max(...R.map(r => r.revenue)) / (38 ** 2), color: R.map(r => r.conversion_rate),
+             colorscale: "RdYlGn", showscale: true, colorbar: {title: {text: S("col_conversion")}, tickformat: ".0%"}, line: {width: 0}},
+    customdata: R.map(r => [r.region, r.revenue, r.conversion_rate * 100, r.avg_sentiment]),
+    hovertemplate: "<b>%{customdata[0]}</b><br>" + S("col_revenue") + ": %{customdata[1]:,.0f}<br>" + S("col_conversion") + ": %{customdata[2]:.1f}<br>" +
+                   S("col_sentiment") + ": %{customdata[3]:.2f}<extra></extra>"}],
+    {...base(), height: 360, margin: {l: 0, r: 0, t: 10, b: 0}, geo: {scope: "europe", lataxis: {range: [41, 52]}, lonaxis: {range: [-5.5, 9.5]},
+      showcountries: true, countrycolor: "#c9d1dc", showland: true, landcolor: "#f4f6f9", showocean: true, oceancolor: "#e8f1fa", resolution: 50}}, cfg);
+
+  // 4. region combo
+  const rs = R.slice().sort((a, b) => a.revenue - b.revenue);
+  Plotly.react("c-region", [
+    {type: "bar", x: rs.map(r => r.region), y: rs.map(r => r.revenue), name: S("revenue_eur"), marker: {color: BLUE},
+     hovertemplate: "%{x}<br>" + S("revenue_eur") + ": %{y:,.0f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: rs.map(r => r.region), y: rs.map(r => r.conversion_rate * 100), name: S("conv_pct"), yaxis: "y2", line: {color: ORANGE, width: 3},
+     hovertemplate: "%{x}<br>" + S("conv_pct") + ": %{y:.1f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: rs.map(r => r.region), y: rs.map(r => r.avg_sentiment * 100), name: S("sentiment_x100"), yaxis: "y2", line: {color: GREEN, width: 2, dash: "dot"},
+     hovertemplate: "%{x}<br>" + S("sentiment_x100") + ": %{y:.1f}<extra></extra>"}],
+    {...base(), height: 360, margin: {l: 60, r: 50, t: 70, b: 40}, yaxis: {tickformat: ",.0f"}, yaxis2: {overlaying: "y", side: "right", showgrid: false}}, cfg);
+
+  // 5. category gap
+  Plotly.react("c-gap", [{type: "bar", x: D.gap.map(g => g.label[lang]), y: D.gap.map(g => g.gap),
+    text: D.gap.map(g => (g.gap >= 0 ? "+" : "−") + pct(Math.abs(g.gap))), textposition: "auto",
+    marker: {color: D.gap.map(g => g.gap > 0 ? RED : GREEN)}, hovertemplate: "%{x}<br>" + S("gap_axis") + ": %{y:+.1f}<extra></extra>"}],
+    {...base(), height: 300, margin: {l: 55, r: 15, t: 10, b: 40}, yaxis: {title: S("gap_axis")}, showlegend: false}, cfg);
+
+  // 6. complaints
+  const tot = D.complaints.reduce((a, b) => a + b.sessions, 0);
+  Plotly.react("c-cb", [{type: "pie", hole: .45, labels: D.complaints.map(x => x.label[lang]), values: D.complaints.map(x => x.sessions),
+    text: D.complaints.map(x => pct(x.sessions / tot * 100)), textinfo: "text", marker: {colors: [GREEN, ORANGE, RED, BLUE]},
+    hovertemplate: "%{label}<br>" + S("col_sessions") + ": %{value:,.0f}<extra></extra>"}],
+    {...base(), height: 300, margin: {l: 10, r: 10, t: 10, b: 10}, legend: {orientation: "h", y: -0.1}}, cfg);
+}
+document.getElementById("prod").onchange = e => { pi = +e.target.value; render(); };
+document.getElementById("lang").onclick = () => { lang = lang === "fr" ? "en" : "fr"; try { localStorage.setItem("lang", lang); } catch (e) {} render(); };
+render();
+</script>
+</body>
+</html>

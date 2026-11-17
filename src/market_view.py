@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from src.config import DATA_DIR
+from src.config import BASE_DIR, DATA_DIR
 from src.pipeline.infra import Layout
 
 
@@ -12,6 +12,9 @@ def load_market(root: Optional[Path] = None) -> Optional[Dict[str, object]]:
     """None if the pipeline has not built the `market_margin` table yet."""
     layout = Layout(root or DATA_DIR)
     gold = layout.gold / "market_margin.parquet"
+    if not gold.exists() and root is None:       # fresh checkout / hosted demo: use the committed snapshot (scripts/make_demo_snapshot.py)
+        layout = Layout(BASE_DIR / "demo_data")
+        gold = layout.gold / "market_margin.parquet"
     if not gold.exists():
         return None
     market = pd.read_parquet(gold)

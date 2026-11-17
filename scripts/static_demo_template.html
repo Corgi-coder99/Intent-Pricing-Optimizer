@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intent Pricing Optimizer — demo</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+:root{--navy:#1f3a5f;--blue:#2f7fc1;--orange:#f39c12;--red:#d64545;--green:#2e9e6b;--bg:#f4f6f9;--ink:#1b2a3d;--line:#e3e8ef}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Source Sans Pro","Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+.wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+h1{font-size:1.5rem;color:var(--navy);margin:0}
+.sub{color:#5b6b80;font-size:.92rem;margin:4px 0 0}
+.ctl{display:flex;gap:10px;align-items:center}
+select,button.lg{font:inherit;padding:7px 10px;border:1px solid #c9d1dc;border-radius:8px;background:#fff;color:var(--ink)}
+button.lg{cursor:pointer;font-weight:600}
+label{font-size:.85rem;color:#5b6b80;display:block;margin-bottom:3px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}
+.kpi{border-radius:8px;padding:14px 10px;color:#fff;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.kpi .v{font-size:clamp(1.1rem,2vw,1.9rem);font-weight:700;line-height:1.1;white-space:nowrap}
+.kpi .l{font-size:.82rem;opacity:.93;margin-top:3px}
+.agent{border-left:5px solid var(--blue);background:#eef5fc;padding:12px 16px;border-radius:6px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+.grid.b{grid-template-columns:1fr 1.2fr}
+.grid.c{grid-template-columns:1.1fr 0.9fr}
+.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:14px;min-width:0}
+.pt{font-weight:600;color:var(--navy);font-size:.95rem;margin:4px 0 0 4px}
+.note{font-size:.85rem;color:#5b6b80;margin-top:6px}
+.note a{color:var(--blue);font-weight:600}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid,.grid.b,.grid.c{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1 id="title"></h1><p class="sub" id="subtitle"></p></div>
+    <div class="ctl">
+      <div><label id="lbl-product" for="prod"></label><select id="prod"></select></div>
+      <button class="lg" id="lang" aria-label="Language"></button>
+    </div>
+  </header>
+  <div class="kpis" id="kpis"></div>
+  <div class="agent" id="agent"></div>
+  <div class="grid">
+    <div class="panel"><div class="pt" id="t-curve"></div><div id="c-curve"></div></div>
+    <div class="panel"><div class="pt" id="t-comp"></div><div id="c-comp"></div></div>
+  </div>
+  <div class="grid b">
+    <div class="panel"><div class="pt" id="t-map"></div><div id="c-map"></div></div>
+    <div class="panel"><div class="pt" id="t-region"></div><div id="c-region"></div></div>
+  </div>
+  <div class="grid c">
+    <div class="panel"><div class="pt" id="t-gap"></div><div id="c-gap"></div></div>
+    <div class="panel"><div class="pt" id="t-cb"></div><div id="c-cb"></div></div>
+  </div>
+  <p class="note" id="note"></p>
+  <p class="note"><a id="repo" href="https://github.com/Corgi-coder99/Intent-Pricing-Optimizer" target="_blank" rel="noopener"></a></p>
+</div>
+<script>
+const D = __DATA__;
+const NAVY="#1f3a5f",BLUE="#2f7fc1",ORANGE="#f39c12",RED="#d64545",GREEN="#2e9e6b";
+let lang = "en";
+try { const s = new URLSearchParams(location.search).get("lang") || localStorage.getItem("lang"); if (s === "fr" || s === "en") lang = s; } catch (e) {}
+let pi = 0;
+const S = k => D.strings[k][lang];
+const loc = () => lang === "fr" ? "fr-FR" : "en-GB";
+const num = (v, d = 0) => new Intl.NumberFormat(loc(), {minimumFractionDigits: d, maximumFractionDigits: d}).format(v);
+const money = (v, d = 2) => new Intl.NumberFormat(loc(), {style: "currency", currency: "EUR", minimumFractionDigits: d, maximumFractionDigits: d}).format(v);
+const pct = (v, d = 1) => num(v, d) + (lang === "fr" ? " %" : "%");
+const base = () => ({margin: {l: 50, r: 30, t: 50, b: 40}, plot_bgcolor: "#fff", paper_bgcolor: "#fff", separators: lang === "fr" ? ", " : ".,",
+                     font: {family: "Source Sans Pro, Segoe UI, Arial, sans-serif", size: 12}, legend: {orientation: "h", y: 1.18}});
+const cfg = {displayModeBar: false, responsive: true};
+
+function render() {
+  const p = D.products[pi];
+  document.documentElement.lang = lang;
+  document.title = S("title");
+  document.getElementById("title").textContent = "📈 " + S("title");
+  document.getElementById("subtitle").textContent = S("subtitle");
+  document.getElementById("lbl-product").textContent = S("product");
+  document.getElementById("lang").textContent = lang === "fr" ? "EN" : "FR";
+  document.getElementById("note").textContent = S("note");
+  document.getElementById("repo").textContent = S("repo") + " →";
+  ["curve:curve_title", "comp:vs_competitors", "map:map_title", "region:region_chart", "gap:category_gap", "cb:complaints"]
+    .forEach(x => { const [id, k] = x.split(":"); document.getElementById("t-" + id).textContent = S(k); });
+
+  const sel = document.getElementById("prod");
+  sel.innerHTML = D.products.map((q, i) => `<option value="${i}" ${i === pi ? "selected" : ""}>${q.name}</option>`).join("");
+
+  const disc = p.discount_pct;
+  const sub = (disc >= 0 ? D.strings.discount[lang] : D.strings.markup[lang]) + " " + pct(Math.abs(disc));
+  const kp = (v, l, c, s = "") => `<div class="kpi" style="background:${c}"><div class="v">${v}</div><div class="l">${l}</div>${s ? `<div class="l">${s}</div>` : ""}</div>`;
+  document.getElementById("kpis").innerHTML =
+    kp(num(p.sessions), S("kpi_sessions"), NAVY) + kp(pct(p.conversion_rate * 100), S("kpi_conversion"), BLUE) +
+    kp(money(p.revenue, 0), S("kpi_revenue"), GREEN) + kp(money(p.opt_price), S("kpi_price"), ORANGE, sub) +
+    kp((p.gain >= 0 ? "+" : "−") + money(Math.abs(p.gain), 0), S("kpi_gain"), p.gain < 0 ? RED : GREEN);
+  document.getElementById("agent").innerHTML = `<b>🤖 ${S("agent")} — ${p.strategy[lang]}${lang === "fr" ? " :" : ":"}</b> ${p.summary[lang]}`;
+
+  // 1. price curve
+  const c = p.curve;
+  Plotly.react("c-curve", [
+    {type: "bar", x: c.price, y: c.rev, name: S("rev_100"), marker: {color: c.price.map(v => v === p.opt_price ? ORANGE : "#b9d3ea")},
+     hovertemplate: S("price_axis") + ": %{x:,.2f}<br>" + S("rev_100") + ": %{y:,.2f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: c.price, y: c.conv, name: S("conv_pct"), yaxis: "y2", line: {color: NAVY, width: 3},
+     hovertemplate: S("price_axis") + ": %{x:,.2f}<br>" + S("conv_pct") + ": %{y:.1f}<extra></extra>"}],
+    {...base(), height: 330, margin: {l: 60, r: 60, t: 70, b: 45}, xaxis: {title: S("price_axis")},
+     yaxis: {title: S("revenue_eur"), tickformat: ",.0f"}, yaxis2: {title: S("conv_pct"), overlaying: "y", side: "right", showgrid: false}, bargap: .15,
+     shapes: [{type: "line", x0: p.comp_price, x1: p.comp_price, yref: "paper", y0: 0, y1: 1, line: {color: RED, dash: "dash"}}],
+     annotations: [{x: p.comp_price, yref: "paper", y: 1.02, text: p.comp_name + " " + money(p.comp_price), showarrow: false, font: {color: RED}}]}, cfg);
+
+  // 2. competitors
+  const cp = p.competitors.slice().reverse();
+  Plotly.react("c-comp", [{type: "bar", orientation: "h", x: cp.map(r => r.price), y: cp.map(r => r.ours ? S("our_price") : r.seller),
+    text: cp.map(r => money(r.price)), textposition: "inside", marker: {color: cp.map(r => r.ours ? ORANGE : BLUE)},
+    hovertemplate: "%{y}<br>" + S("price_axis") + ": %{x:,.2f}<extra></extra>"}],
+    {...base(), height: 330, margin: {l: 130, r: 20, t: 20, b: 45}, xaxis: {title: S("price_axis")}, showlegend: false}, cfg);
+
+  // 3. map
+  const R = D.regions;
+  Plotly.react("c-map", [{type: "scattergeo", lat: R.map(r => r.lat), lon: R.map(r => r.lon),
+    marker: {size: R.map(r => r.revenue), sizemode: "area", sizeref: 2 * Math.max(...R.map(r => r.revenue)) / (38 ** 2), color: R.map(r => r.conversion_rate),
+             colorscale: "RdYlGn", showscale: true, colorbar: {title: {text: S("col_conversion")}, tickformat: ".0%"}, line: {width: 0}},
+    customdata: R.map(r => [r.region, r.revenue, r.conversion_rate * 100, r.avg_sentiment]),
+    hovertemplate: "<b>%{customdata[0]}</b><br>" + S("col_revenue") + ": %{customdata[1]:,.0f}<br>" + S("col_conversion") + ": %{customdata[2]:.1f}<br>" +
+                   S("col_sentiment") + ": %{customdata[3]:.2f}<extra></extra>"}],
+    {...base(), height: 360, margin: {l: 0, r: 0, t: 10, b: 0}, geo: {scope: "europe", lataxis: {range: [41, 52]}, lonaxis: {range: [-5.5, 9.5]},
+      showcountries: true, countrycolor: "#c9d1dc", showland: true, landcolor: "#f4f6f9", showocean: true, oceancolor: "#e8f1fa", resolution: 50}}, cfg);
+
+  // 4. region combo
+  const rs = R.slice().sort((a, b) => a.revenue - b.revenue);
+  Plotly.react("c-region", [
+    {type: "bar", x: rs.map(r => r.region), y: rs.map(r => r.revenue), name: S("revenue_eur"), marker: {color: BLUE},
+     hovertemplate: "%{x}<br>" + S("revenue_eur") + ": %{y:,.0f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: rs.map(r => r.region), y: rs.map(r => r.conversion_rate * 100), name: S("conv_pct"), yaxis: "y2", line: {color: ORANGE, width: 3},
+     hovertemplate: "%{x}<br>" + S("conv_pct") + ": %{y:.1f}<extra></extra>"},
+    {type: "scatter", mode: "lines+markers", x: rs.map(r => r.region), y: rs.map(r => r.avg_sentiment * 100), name: S("sentiment_x100"), yaxis: "y2", line: {color: GREEN, width: 2, dash: "dot"},
+     hovertemplate: "%{x}<br>" + S("sentiment_x100") + ": %{y:.1f}<extra></extra>"}],
+    {...base(), height: 360, margin: {l: 60, r: 50, t: 70, b: 40}, yaxis: {tickformat: ",.0f"}, yaxis2: {overlaying: "y", side: "right", showgrid: false}}, cfg);
+
+  // 5. category gap
+  Plotly.react("c-gap", [{type: "bar", x: D.gap.map(g => g.label[lang]), y: D.gap.map(g => g.gap),
+    text: D.gap.map(g => (g.gap >= 0 ? "+" : "−") + pct(Math.abs(g.gap))), textposition: "auto",
+    marker: {color: D.gap.map(g => g.gap > 0 ? RED : GREEN)}, hovertemplate: "%{x}<br>" + S("gap_axis") + ": %{y:+.1f}<extra></extra>"}],
+    {...base(), height: 300, margin: {l: 55, r: 15, t: 10, b: 40}, yaxis: {title: S("gap_axis")}, showlegend: false}, cfg);
+
+  // 6. complaints
+  const tot = D.complaints.reduce((a, b) => a + b.sessions, 0);
+  Plotly.react("c-cb", [{type: "pie", hole: .45, labels: D.complaints.map(x => x.label[lang]), values: D.complaints.map(x => x.sessions),
+    text: D.complaints.map(x => pct(x.sessions / tot * 100)), textinfo: "text", marker: {colors: [GREEN, ORANGE, RED, BLUE]},
+    hovertemplate: "%{label}<br>" + S("col_sessions") + ": %{value:,.0f}<extra></extra>"}],
+    {...base(), height: 300, margin: {l: 10, r: 10, t: 10, b: 10}, legend: {orientation: "h", y: -0.1}}, cfg);
+}
+document.getElementById("prod").onchange = e => { pi = +e.target.value; render(); };
+document.getElementById("lang").onclick = () => { lang = lang === "fr" ? "en" : "fr"; try { localStorage.setItem("lang", lang); } catch (e) {} render(); };
+render();
+</script>
+</body>
+</html>
