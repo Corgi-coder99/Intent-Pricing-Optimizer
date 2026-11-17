@@ -374,8 +374,11 @@ def gold_sessions(ctx: Context) -> Dict:
     nên đổi/thêm dữ liệu không phải gọi lại LLM cho review cũ."""
     from src.ai_extractor import ReviewSignalExtractor
     ext = ReviewSignalExtractor(use_llm=ctx.use_llm)
+    import inspect
+    # phiên bản bộ trích xuất = từ khoá + MÃ logic (đổi logic thì cache cũ tự vô hiệu)
+    logic = inspect.getsource(ReviewSignalExtractor._analyze_offline)
     mode = "llm:gpt-4o-mini" if ext.use_llm else "offline:" + hashlib.sha256(
-        _json.dumps([ext.ISSUE_KEYWORDS, ext.POSITIVE_KEYWORDS], sort_keys=True).encode()).hexdigest()[:10]
+        _json.dumps([ext.ISSUE_KEYWORDS, ext.POSITIVE_KEYWORDS, logic], sort_keys=True).encode()).hexdigest()[:10]
     cache_path = ctx.layout.state / "review_signal_cache.json"
     cache: Dict[str, dict] = read_json(cache_path, {})
 

@@ -19,7 +19,7 @@ st.markdown(
 <style>
 .block-container {{padding-top: 3.2rem; padding-bottom: 1rem; max-width: 1500px;}}
 .kpi {{border-radius: 8px; padding: 14px 16px; color: #fff; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.18);}}
-.kpi .v {{font-size: 1.9rem; font-weight: 700; line-height: 1.1;}}
+.kpi .v {{font-size: clamp(1.05rem, 1.7vw, 1.9rem); white-space: nowrap; font-weight: 700; line-height: 1.1;}}
 .kpi .l {{font-size: .82rem; opacity: .92; margin-top: 2px;}}
 .ptitle {{font-weight:600; color:{NAVY}; font-size:.95rem; margin:6px 0 0 4px;}}
 .warn {{border-left:5px solid {ORANGE}; background:#fff7e6; padding:10px 14px; border-radius:6px; color:#4a3b12; font-size:.9rem;}}
@@ -45,8 +45,8 @@ if data is None:
 market, names, coords, gbp = data["market"], data["names"], data["coords"], data["gbp"]
 home = str(market["home_country"].iloc[0]) if len(market) else "FR"
 
-f1, f2 = st.columns([1, 2])
-only_ok = f1.checkbox("Chỉ dữ liệu đủ tin cậy (≥2 cửa hàng, ≥3 quan sát)", value=False)
+f1, f2 = st.columns([1.5, 2])
+only_ok = f1.checkbox("Chỉ dữ liệu tin cậy", value=False, help="Giữ các dòng có ≥2 cửa hàng và ≥3 quan sát")
 all_countries = sorted(c for c in market["country"].unique() if c != home)
 picked = f2.multiselect(f"Quốc gia so sánh với {home}", all_countries, default=all_countries)
 
@@ -79,8 +79,8 @@ else:
         fig = go.Figure()
         fig.add_bar(x=summary["country"], y=summary["median_scenario_margin_pct"], name="Biên giả định (neo ở nước nhà)", marker_color=BLUE)
         fig.add_bar(x=summary["country"], y=summary["sector_gross_margin_pct"], name="Biên ngành thực phẩm (Eurostat)", marker_color=ORANGE)
-        fig.update_layout(height=330, margin=dict(l=10, r=10, t=10, b=10), barmode="group", plot_bgcolor="#fff",
-                          legend=dict(orientation="h", y=1.12), yaxis_title="% doanh thu")
+        fig.update_layout(height=330, margin=dict(l=10, r=10, t=80, b=10), barmode="group", plot_bgcolor="#fff",
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02), yaxis_title="% doanh thu")
         st.plotly_chart(fig, width="stretch")
 
     if len(coords):

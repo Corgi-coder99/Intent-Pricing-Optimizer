@@ -33,12 +33,14 @@ class ReviewSignalExtractor:
         text_lower = text.lower()
         detected_category = "none"
         neg_hits = 0
+        best_hits = 0
 
         for category, keywords in self.ISSUE_KEYWORDS.items():
             hits = sum(1 for kw in keywords if kw in text_lower)
             if hits > 0:
-                detected_category = category
                 neg_hits += hits
+                if hits >= best_hits:          # nhiều từ khoá nhất thắng; hoà thì loại khai báo sau thắng
+                    detected_category, best_hits = category, hits
 
         pos_hits = sum(1 for kw in self.POSITIVE_KEYWORDS if kw in text_lower)
 

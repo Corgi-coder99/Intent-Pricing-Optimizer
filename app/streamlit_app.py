@@ -28,7 +28,7 @@ st.markdown(
 <style>
 .block-container {{padding-top: 3.2rem; padding-bottom: 1rem; max-width: 1500px;}}
 .kpi {{border-radius: 8px; padding: 14px 16px; color: #fff; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.18);}}
-.kpi .v {{font-size: 1.9rem; font-weight: 700; line-height: 1.1;}}
+.kpi .v {{font-size: clamp(1.05rem, 1.7vw, 1.9rem); white-space: nowrap; font-weight: 700; line-height: 1.1;}}
 .kpi .l {{font-size: .82rem; opacity: .92; margin-top: 2px;}}
 .panel {{background:#fff; border:1px solid #e3e8ef; border-radius:8px; padding:6px 10px 2px 10px;}}
 .ptitle {{font-weight:600; color:{NAVY}; font-size:.95rem; margin:6px 0 0 4px;}}
@@ -146,7 +146,7 @@ with c1:
     fig.add_trace(go.Scatter(x=sim["offered_price"], y=sim["conversion_prob"] * 100, name="Chuyển đổi (%)",
                              mode="lines+markers", line=dict(color=NAVY, width=3)), secondary_y=True)
     fig.add_vline(x=comp_price, line_dash="dash", line_color=RED, annotation_text=f"{comp_name} ${comp_price:.0f}")
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10), legend=dict(orientation="h", y=1.12),
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=80, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02),
                       plot_bgcolor="#fff", bargap=0.15)
     fig.update_yaxes(title_text="Doanh thu ($)", secondary_y=False)
     fig.update_yaxes(title_text="Chuyển đổi (%)", secondary_y=True)
@@ -181,7 +181,7 @@ with m2:
                              line=dict(color=ORANGE, width=3)), secondary_y=True)
     fig.add_trace(go.Scatter(x=rs["region"], y=rs["avg_sentiment"] * 100, name="Sentiment ×100", mode="lines+markers",
                              line=dict(color=GREEN, width=2, dash="dot")), secondary_y=True)
-    fig.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.12), plot_bgcolor="#fff")
+    fig.update_layout(height=360, margin=dict(l=10, r=10, t=80, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02), plot_bgcolor="#fff")
     st.plotly_chart(fig, width="stretch")
 
 # ---------------- ROW: CATEGORY + COMPLAINTS + RAG ----------------

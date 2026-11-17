@@ -30,3 +30,6 @@ python -m streamlit run app/streamlit_app.py
 ```
 Trang chính: giá, chuyển đổi, đề xuất của agent. Trang "So sanh quoc gia" (thanh bên): so sánh giá và biên giả định giữa các nước EU/UK.
 Trang này cần dữ liệu từ `python -m src.connectors.openprices`, `python -m src.connectors.ecb_fx` và `python -m src.pipeline run`.
+
+Dashboard chỉ lắng nghe ở `127.0.0.1` (cấu hình trong `.streamlit/config.toml`); hãy mở `http://127.0.0.1:8501`.
+Mặc định của Streamlit là mở trên mọi giao diện mạng và dashboard này không có xác thực, nên đừng bỏ cấu hình đó.

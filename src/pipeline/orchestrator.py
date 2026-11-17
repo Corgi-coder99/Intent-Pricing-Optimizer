@@ -43,7 +43,9 @@ class Node:
 
 
 def build_nodes(use_llm: bool = False) -> Dict[str, Node]:
-    S = lambda L: [L.silver / "session.parquet"]
+    from src import ai_extractor as _extractor_module
+    EXTRACTOR_SRC = Path(_extractor_module.__file__)
+    S = lambda L: [L.silver / "session.parquet", EXTRACTOR_SRC]     # đổi mã bộ trích xuất -> gold tính lại
     G = lambda L: [L.gold / "sessions_features.parquet"]
     # Số đo thật trên 50k dòng: mọi bước < 2s. Timeout đặt ~50-100x để bắt bước treo mà không giết bước chậm hợp lệ.
     ns = [
