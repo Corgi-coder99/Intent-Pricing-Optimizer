@@ -1,0 +1,15 @@
+# Số liệu công bố của Zalando SE (sàn thương mại điện tử thời trang, trụ sở Đức), năm tài chính 2024.
+# Nguồn gốc: báo cáo kết quả hợp nhất công bố ngày 2025-03-06, đọc trực tiếp ngày 2026-11-17.
+# Đây là số tổng hợp của MỘT công ty thời trang: KHÔNG phải giá vốn từng sản phẩm hay từng quốc gia,
+# và không đại diện cho ngành thực phẩm. Chỉ dùng làm kịch bản giả định, không dùng làm sự thật về công ty của bạn.
+# derived=yes: tỷ lệ do chúng tôi tính từ các dòng trên (không phải số in trên trang).
+entity,period,metric,value,unit,derived,source_url,retrieved_on
+Zalando SE,2024,revenue,10572.5,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,cost_of_sales,6270.5,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,gross_profit,4302.0,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,fulfilment_costs,2418.4,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,marketing_costs,979.2,EUR_million,no,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,gross_margin_pct,40.69,percent_of_revenue,yes,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,fulfilment_cost_pct,22.87,percent_of_revenue,yes,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,marketing_cost_pct,9.26,percent_of_revenue,yes,https://corporate.zalando.com/en/node/10738,2026-11-17
+Zalando SE,2024,contribution_after_fulfilment_marketing_pct,8.55,percent_of_revenue,yes,https://corporate.zalando.com/en/node/10738,2026-11-17
