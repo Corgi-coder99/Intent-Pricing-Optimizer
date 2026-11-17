@@ -1,4 +1,4 @@
-# LinkedIn draft (NOT published, waiting for the owner's approval)
+# LinkedIn posts (PUBLISHED 2026-11-17: English and French posts, each with demo.mp4 and a first comment with the links)
 
 Format: one post with the **video** (LinkedIn allows either a video or an image carousel in one post, not both). Put the images in a second post or
 as a document/carousel later. Put the GitHub link in the **first comment** (posts with links in the body usually get less reach).
@@ -9,11 +9,11 @@ I built an AI pricing system for EU/UK e-commerce, and spent as much time trying
 
 What it does: reads customer reviews, estimates how demand reacts to price, and recommends a price and a strategy. English/French dashboard, REST API, a bronze/silver/gold data pipeline, and real market data from 8 countries (Open Prices, ECB, Eurostat).
 
-The part I'm proudest of is the checking. Its price sensitivity was compared with real transactions (-2.27 real vs -2.44 simulated). An independent code review found 10 defects, and browser testing found a page crash I had missed. All fixed, all covered by tests (196).
+The part I'm proudest of is the checking. Its price sensitivity was compared with real transactions (-2.27 real vs -2.44 simulated). An independent code review found 10 defects, and browser testing found a page crash I had missed. All fixed, all covered by tests (197).
 
 The honest limits: the conversion model learns from simulated sessions; the review reader is a small keyword model not yet validated on real reviews; the margins across countries are a labelled hypothetical scenario, because real branch costs are not public.
 
-Code in the first comment.
+Code and live demo in the first comment.
 
 #DataScience #Ecommerce #Pricing #Python #Portfolio
 
@@ -23,11 +23,11 @@ J'ai construit un système de prix par IA pour l'e-commerce UE/Royaume-Uni, et j
 
 Ce qu'il fait : il lit les avis clients, estime la réaction de la demande au prix, puis recommande un prix et une stratégie. Tableau de bord anglais/français, API REST, pipeline de données bronze/silver/gold et données de marché réelles de 8 pays (Open Prices, BCE, Eurostat).
 
-La partie dont je suis le plus fier, c'est la vérification. Sa sensibilité au prix a été comparée à de vraies transactions (-2,27 en réel contre -2,44 en simulation). Une revue de code indépendante a trouvé 10 défauts, et les tests navigateur ont révélé un plantage de page que j'avais manqué. Tout est corrigé et couvert par des tests (196).
+La partie dont je suis le plus fier, c'est la vérification. Sa sensibilité au prix a été comparée à de vraies transactions (-2,27 en réel contre -2,44 en simulation). Une revue de code indépendante a trouvé 10 défauts, et les tests navigateur ont révélé un plantage de page que j'avais manqué. Tout est corrigé et couvert par des tests (197).
 
 Les limites, honnêtement : le modèle de conversion apprend sur des sessions simulées ; le lecteur d'avis est un petit modèle à mots-clés pas encore validé sur de vrais avis ; les marges entre pays sont un scénario hypothétique clairement indiqué, car les vrais coûts des filiales ne sont pas publics.
 
-Le code est dans le premier commentaire.
+Le code et la démo en ligne sont dans le premier commentaire.
 
 #DataScience #Ecommerce #Pricing #Python #Portfolio
 
