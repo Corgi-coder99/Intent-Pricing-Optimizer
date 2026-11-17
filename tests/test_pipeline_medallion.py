@@ -40,9 +40,9 @@ def test_classification_by_schema():
 
 def test_end_to_end_and_idempotent_rerun(layout, sessions):
     put(layout, sessions, "s1.csv")
-    r1 = run_pipeline(layout)
+    r1 = run_pipeline(layout, isolate=False)
     assert r1["ok"] and r1["results"]["silver_session"]["rows_total"] == 400
-    r2 = run_pipeline(layout)
+    r2 = run_pipeline(layout, isolate=False)
     assert r2["results"]["bronze_ingest"]["duplicate_files_skipped"] == 1
     assert r2["results"]["silver_session"]["batches"] == 0
     assert r2["status"]["gold_sessions"] == "unchanged"      # đầu vào không đổi -> bỏ qua
@@ -52,7 +52,7 @@ def test_end_to_end_and_idempotent_rerun(layout, sessions):
 def test_same_content_other_filename_is_not_duplicated(layout, sessions):
     put(layout, sessions, "a.csv")
     put(layout, sessions, "copy_of_a.csv")
-    run_pipeline(layout)
+    run_pipeline(layout, isolate=False)
     assert len(silver(layout, "session")) == 400
     assert len(list((layout.bronze / "session").iterdir())) == 1
 
@@ -60,10 +60,10 @@ def test_same_content_other_filename_is_not_duplicated(layout, sessions):
 def test_overlapping_batches_are_upserted(layout, sessions):
     put(layout, sessions.iloc[:300], "b1.csv")
     put(layout, sessions.iloc[200:], "b2.csv")           # 100 dòng trùng session_id
-    r = run_pipeline(layout)
+    r = run_pipeline(layout, isolate=False)
     s = silver(layout, "session")
     assert len(s) == 400 and s["session_id"].is_unique
-    assert r["results"]["silver_session"]["duplicates_vs_existing"] == 100
+    assert r["results"]["silver_session"]["duplicates_across_batches"] == 100
 
 
 def test_bad_rows_quarantined_with_reason(layout, sessions):
@@ -72,7 +72,7 @@ def test_bad_rows_quarantined_with_reason(layout, sessions):
     bad.loc[bad.index[1], "converted"] = 7
     bad.loc[bad.index[2], "region"] = None
     put(layout, bad, "bad.csv")
-    r = run_pipeline(layout)
+    r = run_pipeline(layout, isolate=False)
     assert r["results"]["silver_session"]["rejected"] == 3
     assert len(silver(layout, "session")) == 7
     q = pd.concat(pd.read_parquet(p) for p in (layout.quarantine / "session").iterdir())
@@ -85,7 +85,7 @@ def test_mixed_types_routed_and_unknown_kept_aside(layout, sessions):
                   "country": ["fr", "fr", "gb"], "observed_at": ["2026-01-01"] * 3, "store": ["A", "A", "B"]}
                  ).to_csv(layout.landing / "prices.csv", index=False)
     pd.DataFrame({"x": [1], "y": [2]}).to_csv(layout.landing / "weird.csv", index=False)
-    r = run_pipeline(layout)
+    r = run_pipeline(layout, isolate=False)
     assert r["ok"] and r["results"]["bronze_ingest"]["unclassified"] == 1
     p = silver(layout, "price_observation")
     assert len(p) == 2 and set(p["currency"]) == {"EUR", "GBP"}      # trùng bị khử, tiền tệ chuẩn hoá
@@ -152,7 +152,7 @@ def test_parallel_runs_never_corrupt_or_duplicate(layout, sessions):
 
     def worker():
         try:
-            outcomes.append(run_pipeline(layout, wait_lock=60)["ok"])
+            outcomes.append(run_pipeline(layout, wait_lock=60, isolate=False)["ok"])
         except Exception as exc:     # noqa
             outcomes.append(repr(exc))
 
@@ -172,6 +172,6 @@ def test_parallel_fail_fast_without_wait(layout, sessions):
     lock.acquire()
     try:
         with pytest.raises(PipelineBusy):
-            run_pipeline(layout, wait_lock=0)
+            run_pipeline(layout, wait_lock=0, isolate=False)
     finally:
         lock.release()

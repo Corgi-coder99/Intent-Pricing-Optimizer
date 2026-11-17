@@ -14,6 +14,7 @@ def main() -> int:
     r.add_argument("--simulate", type=int, default=None, help="generate N simulated sessions into landing")
     r.add_argument("--wait", type=float, default=0.0, help="wait up to SEC seconds if another run holds the lock")
     r.add_argument("--workers", type=int, default=3)
+    r.add_argument("--no-isolate", action="store_true", help="run steps in-process (faster start, but timeouts are not enforced)")
     sub.add_parser("status")
     args = ap.parse_args()
     layout = Layout(DATA_DIR)
@@ -23,7 +24,8 @@ def main() -> int:
         print(p.read_text(encoding="utf-8") if p.exists() else "No runs yet.")
         return 0
     try:
-        report = run_pipeline(layout, simulate_n=args.simulate, workers=args.workers, wait_lock=args.wait)
+        report = run_pipeline(layout, simulate_n=args.simulate, workers=args.workers, wait_lock=args.wait,
+                              isolate=False if args.no_isolate else None)
     except PipelineBusy as exc:
         print(f"BUSY: {exc}", file=sys.stderr)
         return 2

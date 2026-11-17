@@ -50,3 +50,23 @@ def test_api_key_enforced(client, monkeypatch):
     assert client.post("/v1/review/analyze", json=body).status_code == 401
     assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "wrong"}).status_code == 401
     assert client.post("/v1/review/analyze", json=body, headers={"X-API-Key": "secret"}).status_code == 200
+
+
+def test_review_analysis_cached_and_reload(client):
+    from src import api
+    calls = {"n": 0}
+    real = api.state["extractor"].analyze_single_review
+
+    def counting(text):
+        calls["n"] += 1
+        return real(text)
+
+    api.state["extractor"].analyze_single_review = counting
+    try:
+        text = "Unique cache probe: battery drains and button is loose."
+        for _ in range(3):
+            assert client.post("/v1/review/analyze", json={"text": text}).status_code == 200
+        assert calls["n"] == 1
+    finally:
+        api.state["extractor"].analyze_single_review = real
+    assert client.post("/v1/admin/reload").json() == {"reloaded": True}

@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Optional
+import os
 import joblib
 import lightgbm as lgb
 import numpy as np
@@ -41,7 +42,9 @@ class DynamicPricingModel:
         self.model.fit(X_train, y_train)
         preds = self.model.predict_proba(X_test)[:, 1]
         auc = roc_auc_score(y_test, preds)
-        joblib.dump(self.model, self.model_path)
+        tmp = self.model_path.with_name(self.model_path.name + f".{os.getpid()}.tmp")
+        joblib.dump(self.model, tmp)
+        os.replace(tmp, self.model_path)   # nguyên tử: API đang đọc không bao giờ thấy file dở
         return {"roc_auc": round(float(auc), 4)}
 
     def load(self) -> None:

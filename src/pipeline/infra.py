@@ -88,11 +88,11 @@ class PipelineBusy(RuntimeError):
 class RunLock:
     """Khoá toàn pipeline: chỉ một lần chạy tại một thời điểm (tạo file bằng O_EXCL, thao tác nguyên tử).
 
-    Khoá cũ hơn `ttl` giây bị coi là của tiến trình đã chết và được thu hồi. Không dùng kiểm tra PID
-    vì trên Windows os.kill(pid, 0) có thể kết thúc tiến trình.
+    Chủ khoá gọi heartbeat() định kỳ; khoá không được gia hạn quá `ttl` giây bị coi là của tiến trình
+    đã chết và được thu hồi. Không dùng kiểm tra PID vì trên Windows os.kill(pid, 0) có thể kết thúc tiến trình.
     """
 
-    def __init__(self, path: Path, ttl: int = 7200, wait: float = 0.0):
+    def __init__(self, path: Path, ttl: int = 600, wait: float = 0.0):
         self.path, self.ttl, self.wait = path, ttl, wait
         self.token = uuid.uuid4().hex
 
@@ -121,6 +121,13 @@ class RunLock:
                 raise PipelineBusy(f"Pipeline is already running (lock: {self.path})")
             time.sleep(0.2)
 
+    def heartbeat(self) -> None:
+        """Gia hạn khoá: chủ khoá còn sống thì mtime luôn mới, nên TTL chỉ để thu hồi khoá của tiến trình đã chết."""
+        try:
+            os.utime(self.path)
+        except FileNotFoundError:
+            pass
+
     def release(self) -> None:
         info: Optional[dict] = None
         try:
@@ -132,3 +139,16 @@ class RunLock:
 
     def __enter__(self): self.acquire(); return self
     def __exit__(self, *exc): self.release()
+
+
+def cleanup_tmp(layout: "Layout", older_than: float = 3600.0) -> int:
+    """Xoá file *.tmp mồ côi (do tiến trình bị kill giữa lúc ghi). Chỉ xoá file đủ cũ."""
+    n, now = 0, time.time()
+    for p in layout.root.rglob("*.tmp"):
+        try:
+            if now - p.stat().st_mtime > older_than:
+                p.unlink()
+                n += 1
+        except OSError:
+            pass
+    return n

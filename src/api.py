@@ -71,7 +71,7 @@ class PriceIn(BaseModel):
 def _resolve(body: PriceIn) -> Dict[str, object]:
     sig: Dict[str, object] = {}
     if body.review_text:
-        sig = state["extractor"].analyze_single_review(body.review_text)  # type: ignore[union-attr]
+        sig = analyze_cached(body.review_text)
     sentiment = body.ai_sentiment_score if body.ai_sentiment_score is not None else float(sig["ai_sentiment_score"])
     if body.pain_point_severity is not None:
         severity = body.pain_point_severity
@@ -87,9 +87,34 @@ def health() -> Dict[str, object]:
     return {"status": "ok", "model_loaded": "model" in state}
 
 
+_review_cache: Dict[str, Dict[str, object]] = {}
+_CACHE_MAX = 5000
+
+
+def analyze_cached(text: str) -> Dict[str, object]:
+    """Mỗi review khác nhau chỉ phân tích một lần (tiết kiệm token khi bật LLM)."""
+    if text not in _review_cache:
+        if len(_review_cache) >= _CACHE_MAX:
+            _review_cache.pop(next(iter(_review_cache)))
+        _review_cache[text] = state["extractor"].analyze_single_review(text)  # type: ignore[union-attr]
+    return dict(_review_cache[text])
+
+
 @app.post("/v1/review/analyze", dependencies=[Depends(require_key)])
 def analyze_review(body: ReviewIn) -> Dict[str, object]:
-    return state["extractor"].analyze_single_review(body.text)  # type: ignore[union-attr]
+    return analyze_cached(body.text)
+
+
+@app.post("/v1/admin/reload", dependencies=[Depends(require_key)])
+def reload_model() -> Dict[str, object]:
+    """Nạp lại mô hình sau khi pipeline huấn luyện lại, không cần khởi động lại dịch vụ."""
+    model = DynamicPricingModel()
+    try:
+        model.load()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Model not trained. Run: python -m src.train_pipeline")
+    state["model"] = model
+    return {"reloaded": True}
 
 
 @app.post("/v1/price/simulate", dependencies=[Depends(require_key)])

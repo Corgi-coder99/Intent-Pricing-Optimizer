@@ -30,7 +30,30 @@ File không khớp hợp đồng nào -> `bronze/_unclassified`, không vào sil
   Khoá cũ hơn 2 giờ được thu hồi; chỉ chủ khoá mới nhả được khoá.
 - Gold bỏ qua khi fingerprint đầu vào không đổi.
 
+## Timeout từng bước (đã cưỡng chế)
+Mỗi bước chạy trong một tiến trình con; quá hạn thì bị kill, các bước phụ thuộc bị bỏ qua, khoá được nhả.
+File ghi nguyên tử nên bị kill giữa chừng không làm hỏng dữ liệu; file `.tmp` mồ côi được dọn ở lượt sau.
+Khoá có heartbeat 5 giây, TTL 600 giây chỉ để thu hồi khoá của tiến trình đã chết.
+
+Đo thật trên 50.000 dòng: mọi bước < 2 giây. Timeout đề xuất (khoảng 50-100x thời gian đo):
+| Bước | Timeout |
+|---|---|
+| generate_simulated, bronze_ingest, gold_summaries, gold_competitor_prices | 120 s |
+| silver_* | 300 s |
+| gold_sessions (offline) | 300 s |
+| gold_sessions (LLM) | 1800 s |
+Dữ liệu lớn gấp 20 lần vẫn nằm trong hạn. Chỉnh trong `build_nodes()` (src/pipeline/orchestrator.py).
+Chi phí: mỗi tiến trình con khởi động ~2 giây trên Windows; chạy cả pipeline ~10 giây thay vì ~2,5 giây.
+Cần nhanh hơn thì `--no-isolate` (mất cưỡng chế timeout).
+
+## Dữ liệu cũ KHÔNG bị xoá
+- Bronze bất biến, chỉ thêm. Silver upsert theo khoá và chỉ xử lý file mới (tăng dần), không làm lại từ đầu.
+- Dòng bị cập nhật: bản cũ được lưu ở `silver/history/<loại>.parquet` kèm `superseded_at`, `superseded_by_batch`.
+- Review đã phân tích được cache bền (`state/review_signal_cache.json`); đổi từ khoá/mô hình thì cache tự vô hiệu.
+- Huấn luyện lại chỉ khi gold hoặc mã mô hình đổi.
+- Việc phải làm lại mỗi lần dữ liệu đổi: tính lại bảng gold (giây) và huấn luyện lại (giây). Bronze tăng dần, chưa có chính sách xoá file cũ.
+
 ## Giới hạn
-- Chưa có timeout cho từng bước; bước treo sẽ giữ khoá đến khi hết TTL.
+- Dòng bị nguồn xoá không tự bị xoá khỏi silver (chỉ có upsert); muốn đồng bộ xoá cần file tombstone.
 - Simulation mới (nội dung khác) cộng dồn vào silver theo session_id; muốn làm lại từ đầu hãy xoá `data/`.
 - Chưa có adapter Open Prices; đã có sẵn hợp đồng `price_observation` để nối vào.

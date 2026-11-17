@@ -109,9 +109,16 @@ def silver_build(ctx: Context, rtype: str) -> Dict:
             atomic_write_parquet(bad.astype(str), qdir / f"{digest[:12]}.parquet")   # tên theo hash -> idempotent
         processed.append(digest)
 
-    new_rows = pd.concat(frames, ignore_index=True)
+    all_new = pd.concat(frames, ignore_index=True)
+    new_rows = all_new.drop_duplicates(subset=contract.key, keep="last")
+    totals["duplicates_across_batches"] = len(all_new) - len(new_rows)
+    updated = archived = 0
     if out_path.exists():
         existing = pd.read_parquet(out_path)
+        old_versions = _changed_versions(existing, new_rows, contract.key)
+        if len(old_versions):
+            archived = _archive_history(L, rtype, old_versions, contract.key, pending[-1][0][:12])
+        updated = len(old_versions)
         merged = pd.concat([existing, new_rows], ignore_index=True)
     else:
         merged = new_rows
@@ -119,17 +126,70 @@ def silver_build(ctx: Context, rtype: str) -> Dict:
     merged = merged.drop_duplicates(subset=contract.key, keep="last").sort_values(contract.key).reset_index(drop=True)
     atomic_write_parquet(merged, out_path)
     atomic_write_json(state_path, processed)      # ghi sau cùng: nếu sập giữa chừng thì lần sau xử lý lại, vẫn đúng
-    return {"batches": len(pending), **totals, "duplicates_vs_existing": before - len(merged), "rows_total": len(merged)}
+    return {"batches": len(pending), **totals, "duplicates_vs_existing": before - len(merged),
+            "updated_rows": updated, "archived_versions": archived, "rows_total": len(merged)}
+
+
+def _row_hash(df: pd.DataFrame, cols: List[str]) -> pd.Series:
+    norm = df[cols].astype(object).where(df[cols].notna(), "").astype(str)
+    return pd.util.hash_pandas_object(norm, index=False)
+
+
+def _changed_versions(existing: pd.DataFrame, new: pd.DataFrame, key: List[str]) -> pd.DataFrame:
+    """Các dòng cũ có cùng khoá nhưng nội dung khác bản mới (sắp bị ghi đè)."""
+    cols = [c for c in existing.columns if c in new.columns and c not in key]
+    e = existing[key].assign(_h=_row_hash(existing, cols).values)
+    n = new[key].assign(_h=_row_hash(new, cols).values)
+    changed = e.merge(n, on=key, suffixes=("_old", "_new"))
+    changed = changed[changed["_h_old"] != changed["_h_new"]][key]
+    return existing.merge(changed, on=key, how="inner")
+
+
+def _archive_history(L: Layout, rtype: str, old: pd.DataFrame, key: List[str], batch: str) -> int:
+    """Lưu phiên bản cũ vào silver/history/<loại>.parquet (khử trùng theo khoá + nội dung nên chạy lại không nhân đôi)."""
+    hdir = L.silver / "history"
+    hdir.mkdir(parents=True, exist_ok=True)
+    path = hdir / f"{rtype}.parquet"
+    cols = [c for c in old.columns if c not in key]
+    old = old.assign(row_hash=_row_hash(old, cols).values, superseded_by_batch=batch,
+                     superseded_at=pd.Timestamp.now(tz="UTC"))
+    if path.exists():
+        old = pd.concat([pd.read_parquet(path), old], ignore_index=True)
+    before = len(pd.read_parquet(path)) if path.exists() else 0
+    old = old.drop_duplicates(subset=[*key, "row_hash"], keep="first")
+    atomic_write_parquet(old, path)
+    return len(old) - before
 
 
 # ---------------------------------------------------------------- GOLD
 def gold_sessions(ctx: Context) -> Dict:
+    """Làm giàu phiên bằng tín hiệu review. Mỗi review khác nhau chỉ được phân tích MỘT lần (cache bền trên đĩa),
+    nên đổi/thêm dữ liệu không phải gọi lại LLM cho review cũ."""
+    import hashlib
+    import json as _json
     from src.ai_extractor import ReviewSignalExtractor
+    ext = ReviewSignalExtractor(use_llm=ctx.use_llm)
+    mode = "llm:gpt-4o-mini" if ext.use_llm else "offline:" + hashlib.sha256(
+        _json.dumps([ext.ISSUE_KEYWORDS, ext.POSITIVE_KEYWORDS], sort_keys=True).encode()).hexdigest()[:10]
+    cache_path = ctx.layout.state / "review_signal_cache.json"
+    cache: Dict[str, dict] = read_json(cache_path, {})
+
     df = pd.read_parquet(ctx.layout.silver / "session.parquet")
-    df = df.rename(columns={})   # giữ tên cột silver
-    enriched = ReviewSignalExtractor(use_llm=ctx.use_llm).enrich_dataframe(df)
+    key = lambda t: hashlib.sha256(f"{mode}|{t}".encode()).hexdigest()
+    new_calls = 0
+    for text in df["recent_review_text"].unique():
+        k = key(text)
+        if k not in cache:
+            cache[k] = ext.analyze_single_review(text)
+            new_calls += 1
+    if new_calls:
+        atomic_write_json(cache_path, cache)
+
+    extracted = pd.DataFrame([cache[key(t)] for t in df["recent_review_text"]], index=df.index)
+    enriched = pd.concat([df, extracted], axis=1)
     atomic_write_parquet(enriched, ctx.layout.gold / "sessions_features.parquet")
-    return {"rows": len(enriched)}
+    return {"rows": len(enriched), "reviews_analyzed_now": new_calls,
+            "reviews_from_cache": int(df["recent_review_text"].nunique()) - new_calls, "mode": mode.split(":")[0]}
 
 
 def gold_summaries(ctx: Context) -> Dict:
